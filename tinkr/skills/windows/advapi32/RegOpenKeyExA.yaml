@@ -1,0 +1,67 @@
+name: RegOpenKeyExA
+platform: windows
+lib: advapi32
+description: |
+  Open an existing registry key by ANSI name. Returns a handle in
+  phkResult that must later be closed with RegCloseKey. The "A" suffix
+  takes an ANSI (code-page) subkey string; for Unicode use RegOpenKeyExW.
+
+lowering: indirect_call
+
+seed:
+  header: windows_advapi32
+  field: RegOpenKeyExA
+  access: "s->advapi32->RegOpenKeyExA"
+
+# MSDN typed names translated to plain C:
+#   HKEY      -> void *           (registry key handle)
+#   LPCSTR    -> const char *     (ANSI null-terminated subkey path)
+#   DWORD     -> unsigned int
+#   REGSAM    -> unsigned int     (access-rights mask)
+#   PHKEY     -> void **          (out-pointer to receive the opened HKEY)
+#   LSTATUS   -> int              (LONG; 0 = ERROR_SUCCESS, else Win32 error)
+signature:
+  return:
+    c_type: int
+    on_failure: "non-zero LSTATUS (Win32 error code); ERROR_SUCCESS=0"
+  params:
+    - { name: hKey,        c_type: "void *" }
+    - { name: lpSubKey,    c_type: "const char *" }
+    - { name: ulOptions,   c_type: "unsigned int" }
+    - { name: samDesired,  c_type: "unsigned int" }
+    - { name: phkResult,   c_type: "void **" }
+
+example: |
+  void *hKey = NULL;
+  /* HKEY_LOCAL_MACHINE = (HKEY)0x80000002, KEY_READ = 0x20019 */
+  int status = s->advapi32->RegOpenKeyExA(
+      (void *)0x80000002,
+      "SOFTWARE\\Microsoft\\Windows\\CurrentVersion",
+      0, 0x20019, &hKey);
+  if (status == 0) {
+      /* ... use hKey ... */
+      s->advapi32->RegCloseKey(hKey);
+  }
+
+notes: |
+  - Predefined root HKEYs are not real handles; they are magic constants:
+    HKEY_CLASSES_ROOT=0x80000000, HKEY_CURRENT_USER=0x80000001,
+    HKEY_LOCAL_MACHINE=0x80000002, HKEY_USERS=0x80000003,
+    HKEY_CURRENT_CONFIG=0x80000005. Cast to (void *) when passing.
+  - lpSubKey may be NULL or "" to reopen hKey with a new access mask.
+  - ulOptions: usually 0. REG_OPTION_OPEN_LINK=0x8 follows symlink keys.
+  - Common samDesired masks: KEY_QUERY_VALUE=0x1, KEY_SET_VALUE=0x2,
+    KEY_ENUMERATE_SUB_KEYS=0x8, KEY_READ=0x20019, KEY_WRITE=0x20006,
+    KEY_ALL_ACCESS=0xF003F. OR with KEY_WOW64_64KEY=0x100 or
+    KEY_WOW64_32KEY=0x200 to force a registry view on 64-bit Windows.
+  - Return value is a Win32 error code (LSTATUS/LONG), NOT a BOOL and
+    NOT an NTSTATUS. GetLastError() is NOT set; use the return directly.
+    ERROR_FILE_NOT_FOUND=2, ERROR_ACCESS_DENIED=5 are common failures.
+  - The handle written to *phkResult must be released with RegCloseKey
+    when no longer needed; predefined HKEYs do not require closing but
+    closing them is harmless.
+  - Backslashes in subkey paths must be escaped in C string literals
+    (e.g., "SOFTWARE\\Microsoft"). Forward slashes are NOT accepted.
+  - Win64 ABI: first four args in RCX, RDX, R8, R9, fifth (phkResult)
+    on stack after the 32-byte shadow space. Clang handles this when
+    --target=x86_64-pc-windows-*.

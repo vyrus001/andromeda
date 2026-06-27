@@ -1,0 +1,30 @@
+name: objc_getClass
+platform: macos
+lib: libobjc
+description: |
+  Look up an Objective-C class object by its name. The returned pointer
+  (a Class) is what you pass to objc_msgSend as the receiver when
+  invoking a class method.
+
+lowering: indirect_call
+
+seed:
+  header: macos_libobjc
+  field: objc_getClass
+  access: "s->libobjc->objc_getClass"
+
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "NULL if no class with that name is registered"
+  params:
+    - { name: name, c_type: "const char *" }
+
+example: |
+  void *NSStringClass = s->libobjc->objc_getClass("NSString");
+
+notes: |
+  - Class name is the bare ObjC name ("NSString", not "@NSString").
+  - Loaded frameworks register their classes lazily on first use of the
+    framework; if you haven't dlopen'd Foundation/AppKit yet, classes
+    from those frameworks won't be findable.

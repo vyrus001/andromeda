@@ -1,0 +1,50 @@
+name: stringWithUTF8String
+platform: macos
+lib: Foundation
+class: NSString
+description: |
+  Construct an autoreleased NSString from a null-terminated UTF-8 C
+  string. Equivalent to: [NSString stringWithUTF8String:cstr].
+
+lowering: objc_msgsend
+
+# Cocoa method skills are NOT in the seed struct directly — they
+# operate by sending a message via objc_msgSend, using class lookup
+# (objc_getClass) and selector registration (sel_registerName). Those
+# infrastructure functions ARE seed-resident; declared as deps here.
+requires:
+  - macos/libobjc/objc_getClass
+  - macos/libobjc/sel_registerName
+  - macos/libobjc/objc_msgSend
+
+class_name: NSString
+selector: "stringWithUTF8String:"
+receiver_kind: class           # class method (receiver = the class)
+
+signature:
+  return:
+    c_type: "void *"           # NSString *
+    on_failure: "NULL on invalid UTF-8 or OOM"
+  params:
+    - { name: utf8, c_type: "const char *" }
+
+# Helper the agent should paste at file scope. Wraps class lookup +
+# selector registration + typed cast + invocation in one function so
+# entry() can call it with a clean signature.
+helper: |
+  static void *NSString_stringWithUTF8String(struct macos_libobjc *o,
+                                             const char *utf8) {
+      void *cls = o->objc_getClass("NSString");
+      void *sel = o->sel_registerName("stringWithUTF8String:");
+      typedef void *(*msg_t)(void *, void *, const char *);
+      return ((msg_t)o->objc_msgSend)(cls, sel, utf8);
+  }
+
+example: |
+  void *str = NSString_stringWithUTF8String(s->libobjc, "hello");
+
+notes: |
+  - Returns an autoreleased NSString. Blob lifetime is short enough
+    that the autorelease pool typically handles this; no manual release
+    needed unless the blob runs for a long time.
+  - For a non-autoreleased variant use NSString.alloc + initWithUTF8String:.

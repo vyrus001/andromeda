@@ -1,0 +1,33 @@
+name: open
+platform: linux
+lib: libc
+description: |
+  Open a file. Returns a file descriptor on success.
+
+lowering: indirect_call
+
+seed:
+  header: linux_libc
+  field: open
+  access: "s->libc->open"
+
+# `open` is variadic in POSIX (mode is optional, only used with O_CREAT).
+# We expose the 3-arg form for the seed; pass mode=0 when not creating.
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1, errno set"
+  params:
+    - { name: pathname, c_type: "const char *" }
+    - { name: flags,    c_type: int }
+    - { name: mode,     c_type: "unsigned int" }
+
+example: |
+  int fd = s->libc->open("/tmp/data", /* O_RDONLY */ 0, 0);
+
+notes: |
+  - Common flags (Linux): O_RDONLY=0, O_WRONLY=1, O_RDWR=2, O_CREAT=0x40,
+    O_TRUNC=0x200, O_APPEND=0x400, O_NONBLOCK=0x800, O_CLOEXEC=0x80000.
+  - `mode` is used only when O_CREAT is in `flags`; pass 0 otherwise.
+  - On arm64 Linux there is no `open` syscall — libc translates to
+    `openat(AT_FDCWD, ...)`. The seed entry hides that.

@@ -1,0 +1,51 @@
+name: stat
+platform: linux
+lib: libc
+description: |
+  Retrieve file metadata for the file at `pathname`, following symbolic
+  links. Fills the caller-provided `struct stat` with size, mode,
+  timestamps, ownership, and device/inode identifiers.
+
+lowering: indirect_call
+
+seed:
+  header: linux_libc
+  field: stat
+  access: "s->libc->stat"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1, errno set"
+  params:
+    - { name: pathname, c_type: "const char *" }
+    - { name: statbuf,  c_type: "void *" }
+
+example: |
+  /* The exact layout of struct stat is libc- and arch-dependent; reserve
+     a generously-sized opaque buffer and index known offsets, OR pull in
+     <sys/stat.h> at codegen time and use the real type. */
+  unsigned char st[256];
+  int rc = s->libc->stat("/etc/hostname", st);
+  if (rc < 0) { /* errno set */ }
+
+notes: |
+  - POSIX prototype: `int stat(const char *pathname, struct stat *statbuf)`.
+    The skill declares `statbuf` as `void *` because `struct stat`'s
+    layout varies between glibc/musl and across architectures; the agent
+    should either define a matching struct or use a fixed-size scratch
+    buffer of at least 256 bytes (sufficient for all common Linux ABIs).
+  - On glibc, the public symbol `stat` is a tiny inline that forwards to
+    `__xstat(ver, path, buf)` on older releases — modern glibc (2.33+)
+    exports a real `stat` symbol. The loader should resolve whichever
+    is available; the ABI through the seed entry is the POSIX one.
+  - Follows symlinks. For symlink-itself metadata use `lstat`. To stat
+    relative to a directory fd use `fstatat`.
+  - On 32-bit archs (i386, arm) beware the 32-bit-vs-64-bit off_t split:
+    glibc's default `stat` may be the 32-bit variant; use `stat64` or
+    compile with `-D_FILE_OFFSET_BITS=64` for large-file safety.
+  - Common errno values: ENOENT (no such path), EACCES (search perm on
+    a path component), ENOTDIR (non-directory in path), ELOOP, ENAMETOOLONG.
+  - Direct syscall alternative: linux/syscall/stat (note: on arm64 there
+    is no `stat` syscall — kernel only exposes `fstatat`/`statx`; libc
+    hides this translation).

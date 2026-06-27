@@ -1,0 +1,42 @@
+name: GetTickCount64
+platform: windows
+lib: kernel32
+description: |
+  Return the number of milliseconds elapsed since the system was started,
+  as a 64-bit unsigned value. Unlike the 32-bit GetTickCount, this does
+  not wrap after ~49.7 days, so it's the right choice for any timing
+  loop or timeout calculation that might span a long-running process.
+
+lowering: indirect_call
+
+seed:
+  header: windows_kernel32
+  field: GetTickCount64
+  access: "s->kernel32->GetTickCount64"
+
+# MSDN typed name: ULONGLONG -> `unsigned long long` (64-bit unsigned).
+signature:
+  return:
+    c_type: "unsigned long long"
+    on_failure: "cannot fail; no error path"
+  params: []
+
+example: |
+  unsigned long long start = s->kernel32->GetTickCount64();
+  /* ... do work ... */
+  unsigned long long elapsed_ms = s->kernel32->GetTickCount64() - start;
+
+notes: |
+  - Resolution is typically 10-16 ms (limited by the system timer tick),
+    not 1 ms. For higher-resolution timing use QueryPerformanceCounter.
+  - Available on Windows Vista / Server 2008 and later. On XP / Server
+    2003 only the 32-bit GetTickCount exists; if the blob must target
+    those, use that instead and handle wraparound.
+  - The value counts time the system is awake; sleep/hibernate periods
+    are included on modern Windows but historically excluded — don't
+    rely on it for wall-clock measurements across suspend.
+  - No GetLastError path: this function never fails and never sets
+    an error code.
+  - Win64 ABI: return value comes back in RAX; no args means no
+    register/stack setup beyond the standard 32-byte shadow space
+    that Clang emits automatically for --target=x86_64-pc-windows-*.

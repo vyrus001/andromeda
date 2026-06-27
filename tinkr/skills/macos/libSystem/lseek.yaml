@@ -1,0 +1,40 @@
+name: lseek
+platform: macos
+lib: libSystem
+description: |
+  Reposition the read/write offset of an open file descriptor. Returns
+  the resulting offset measured in bytes from the beginning of the file.
+
+lowering: indirect_call
+
+seed:
+  header: macos_libsystem
+  field: lseek
+  access: "s->libsystem->lseek"
+
+signature:
+  return:
+    c_type: "long long"
+    on_failure: "returns -1, errno set"
+  params:
+    - { name: fd,     c_type: int }
+    - { name: offset, c_type: "long long" }
+    - { name: whence, c_type: int }
+
+example: |
+  long long pos = s->libsystem->lseek(fd, 0, /* SEEK_END */ 2);
+  if (pos < 0) { /* errno set */ }
+
+notes: |
+  - `offset` is `off_t` in the Apple headers, which is a signed 64-bit
+    integer on macOS (both arm64 and x86_64). We expose it as
+    `long long` to avoid pulling in <sys/types.h> in seeds.h.
+  - `whence` constants: SEEK_SET=0 (absolute), SEEK_CUR=1 (relative to
+    current), SEEK_END=2 (relative to end). macOS also defines
+    SEEK_HOLE=3 and SEEK_DATA=4 for sparse files.
+  - Seeking past EOF is legal; a subsequent write extends the file with
+    a hole (zero-filled region).
+  - lseek on a pipe, socket, or FIFO fails with ESPIPE (-1, errno=29).
+  - Idiom: `lseek(fd, 0, SEEK_CUR)` queries the current offset without
+    moving it; `lseek(fd, 0, SEEK_END)` returns the file size.
+  - macOS does not have a separate lseek64 — `lseek` is already 64-bit.

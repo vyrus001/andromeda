@@ -1,0 +1,60 @@
+name: initWithUTF8String
+platform: macos
+lib: Foundation
+class: NSString
+description: |
+  Initialize a freshly-alloc'd NSString from a null-terminated UTF-8 C
+  string. Equivalent to: [[NSString alloc] initWithUTF8String:cstr].
+  Unlike stringWithUTF8String:, the returned object is NOT autoreleased —
+  the caller owns it and must release it eventually (or hand it to a
+  collection / API that retains it).
+
+lowering: objc_msgsend
+
+requires:
+  - macos/libobjc/objc_getClass
+  - macos/libobjc/sel_registerName
+  - macos/libobjc/objc_msgSend
+
+class_name: NSString
+selector: "initWithUTF8String:"
+receiver_kind: instance        # instance method; receiver = alloc'd NSString
+
+signature:
+  return:
+    c_type: "void *"           # NSString * (id)
+    on_failure: "nil (NULL) on invalid UTF-8 or OOM"
+  params:
+    - { name: receiver, c_type: "void *" }   # the alloc'd instance
+    - { name: utf8,     c_type: "const char *" }
+
+helper: |
+  static void *NSString_initWithUTF8String(struct macos_libobjc *o,
+                                           void *receiver,
+                                           const char *utf8) {
+      void *sel = o->sel_registerName("initWithUTF8String:");
+      typedef void *(*msg_t)(void *, void *, const char *);
+      return ((msg_t)o->objc_msgSend)(receiver, sel, utf8);
+  }
+
+example: |
+  /* [[NSString alloc] initWithUTF8String:"hello"] */
+  void *cls   = s->libobjc->objc_getClass("NSString");
+  void *asel  = s->libobjc->sel_registerName("alloc");
+  typedef void *(*alloc_t)(void *, void *);
+  void *inst  = ((alloc_t)s->libobjc->objc_msgSend)(cls, asel);
+  void *str   = NSString_initWithUTF8String(s->libobjc, inst, "hello");
+
+notes: |
+  - This is an instance method, so the receiver is the object returned
+    by [NSString alloc], NOT the NSString class itself.
+  - The returned object is owned by the caller (retain count 1). Send
+    `release` when done, or stash into a retaining container. For
+    short-lived blobs you may simply leak it — the process tear-down
+    reclaims everything.
+  - The init... family may return a different object than the receiver
+    (or nil). Always use the return value, not the original alloc'd
+    pointer, after calling init.
+  - Returns nil (NULL) if `utf8` is not valid UTF-8 or allocation fails.
+  - For an autoreleased one-shot construction, prefer
+    macos/Foundation/NSString_stringWithUTF8String (class method).

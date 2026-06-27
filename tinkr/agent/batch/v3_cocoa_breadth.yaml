@@ -1,0 +1,46 @@
+# Batch v3: macOS framework breadth beyond Foundation.
+#
+# CoreFoundation lifecycle primitives, AppKit minimum-viable popup,
+# Security random bytes. All C-callable; AppKit methods go through
+# objc_msgsend.
+
+skills:
+  # ────────────────────────────────────────────────────────────────────
+  # CoreFoundation — C API (not objc_msgsend; these are real C functions
+  # in CoreFoundation.framework, resolved via dlsym).
+  # ────────────────────────────────────────────────────────────────────
+  - { platform: macos, lib: CoreFoundation, function: CFStringCreateWithCString, lowering: indirect_call,
+      doc_text: "Function from CoreFoundation.framework. CFStringRef CFStringCreateWithCString(CFAllocatorRef alloc, const char *cStr, CFStringEncoding encoding). Pass alloc=NULL (kCFAllocatorDefault). encoding kCFStringEncodingUTF8 = 0x08000100. Returns CFStringRef (= void*) or NULL on failure. Caller owns the returned reference; release with CFRelease." }
+
+  - { platform: macos, lib: CoreFoundation, function: CFRelease, lowering: indirect_call,
+      doc_text: "Function from CoreFoundation.framework. void CFRelease(CFTypeRef cf). Decrements the refcount; deallocates when it reaches 0. NULL is undefined behavior — check before calling." }
+
+  - { platform: macos, lib: CoreFoundation, function: CFRetain, lowering: indirect_call,
+      doc_text: "Function from CoreFoundation.framework. CFTypeRef CFRetain(CFTypeRef cf). Increments refcount; returns the same pointer. NULL is undefined behavior." }
+
+  - { platform: macos, lib: CoreFoundation, function: CFShow, lowering: indirect_call,
+      doc_text: "Function from CoreFoundation.framework. void CFShow(CFTypeRef cf). Prints the object's description to stderr. Useful for debugging without going through NSLog's format string." }
+
+  # ────────────────────────────────────────────────────────────────────
+  # Security — random bytes (modern macOS API)
+  # ────────────────────────────────────────────────────────────────────
+  - { platform: macos, lib: Security, function: SecRandomCopyBytes, lowering: indirect_call,
+      doc_text: "Function from Security.framework. int SecRandomCopyBytes(SecRandomRef rnd, size_t count, void *bytes). Fills `bytes` with `count` cryptographically-random bytes. Pass rnd=NULL (kSecRandomDefault). Returns 0 on success, errSecAllocate=-108 / errSecParam=-50 on failure." }
+
+  # ────────────────────────────────────────────────────────────────────
+  # AppKit — sharedApplication + NSAlert popup pattern
+  # ────────────────────────────────────────────────────────────────────
+  - { platform: macos, lib: AppKit, function: NSApplication_sharedApplication, lowering: objc_msgsend,
+      doc_text: "Class method on NSApplication. Selector: sharedApplication. Receiver: class. Returns the NSApplication singleton (creates it on first call). Required before any AppKit UI operations." }
+
+  - { platform: macos, lib: AppKit, function: NSAlert_alloc, lowering: objc_msgsend,
+      doc_text: "Class method on NSAlert. Selector: alloc. Receiver: class. Returns NSAlert * (uninitialized). Chain with init." }
+
+  - { platform: macos, lib: AppKit, function: NSAlert_init, lowering: objc_msgsend,
+      doc_text: "Instance method on NSAlert. Selector: init. Returns id (the initialized alert; same pointer as receiver on success)." }
+
+  - { platform: macos, lib: AppKit, function: NSAlert_setMessageText, lowering: objc_msgsend,
+      doc_text: "Instance method on NSAlert. Selector: setMessageText:. Arg: NSString *. Void return. Sets the main message line of the alert." }
+
+  - { platform: macos, lib: AppKit, function: NSAlert_runModal, lowering: objc_msgsend,
+      doc_text: "Instance method on NSAlert. Selector: runModal. Returns NSModalResponse (= long; OK=1000, Cancel=1001). Blocks until the user dismisses the alert." }

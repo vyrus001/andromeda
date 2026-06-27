@@ -1,0 +1,48 @@
+name: WSACleanup
+platform: windows
+lib: ws2_32
+description: |
+  Terminate use of the Winsock 2 DLL by the calling process. Each
+  successful call to WSAStartup must be balanced by a corresponding
+  call to WSACleanup; the library maintains a per-process reference
+  count and only fully unloads when the count drops to zero.
+
+lowering: indirect_call
+
+seed:
+  header: windows_ws2_32
+  field: WSACleanup
+  access: "s->ws2_32->WSACleanup"
+
+# MSDN signature: int WSAAPI WSACleanup(void);
+# WSAAPI == __stdcall on x86 (Win64 has a single calling convention so
+# this collapses to the standard Win64 ABI).
+signature:
+  return:
+    c_type: int
+    on_failure: "returns SOCKET_ERROR (-1); call WSAGetLastError() for code"
+  params: []
+
+example: |
+  /* After all sockets are closed and Winsock is no longer needed: */
+  int rc = s->ws2_32->WSACleanup();
+  if (rc != 0) { /* WSAGetLastError() for details */ }
+
+notes: |
+  - Pair each WSAStartup() with exactly one WSACleanup(). Extra calls
+    return WSANOTINITIALISED (10093) without harm; missing calls leak
+    Winsock's per-process state until process exit.
+  - Common error codes: WSANOTINITIALISED (10093) if WSAStartup was
+    never called successfully, WSAENETDOWN (10050) if the network
+    subsystem failed, WSAEINPROGRESS (10036) if a blocking call is in
+    progress on another thread.
+  - All open sockets at the time of the final WSACleanup are reset and
+    closed; pending blocking/async operations are cancelled. Do not
+    rely on graceful shutdown semantics here — close sockets explicitly
+    via closesocket() first.
+  - Safe to call from DLL detach paths only with caution: per MSDN, do
+    not call Winsock functions from DllMain. For blob code injected
+    into a process this rarely matters, but worth flagging.
+  - Return value 0 = success; SOCKET_ERROR (-1) = failure. The error
+    detail is retrieved via WSAGetLastError(), not GetLastError(),
+    though on modern Windows they share the same TLS slot.

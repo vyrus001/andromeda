@@ -1,0 +1,59 @@
+name: connect
+platform: linux
+lib: libc
+description: |
+  Initiate a connection on a socket. For connection-oriented sockets
+  (SOCK_STREAM), establishes a connection to the peer specified by
+  `addr`. For connectionless sockets (SOCK_DGRAM), sets the default
+  destination for subsequent send/recv calls and the only address from
+  which datagrams are accepted.
+
+lowering: indirect_call
+
+seed:
+  header: linux_libc
+  field: connect
+  access: "s->libc->connect"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1, errno set"
+  params:
+    - { name: sockfd,  c_type: int }
+    - { name: addr,    c_type: "const void *" }
+    - { name: addrlen, c_type: "unsigned int" }
+
+example: |
+  /* Connect to 127.0.0.1:8080 via IPv4 TCP. */
+  /* struct sockaddr_in layout: u16 family, u16 port (BE),
+     u32 addr (BE), 8 bytes padding. */
+  struct {
+      unsigned short sin_family;
+      unsigned short sin_port;
+      unsigned int   sin_addr;
+      unsigned char  sin_zero[8];
+  } sa = {0};
+  sa.sin_family = 2;                              /* AF_INET */
+  sa.sin_port   = (8080 >> 8) | ((8080 & 0xff) << 8);  /* htons */
+  sa.sin_addr   = 0x0100007f;                     /* 127.0.0.1, network order */
+  int rc = s->libc->connect(fd, &sa, sizeof sa);
+  if (rc < 0) { /* errno set: ECONNREFUSED, ETIMEDOUT, ... */ }
+
+notes: |
+  - `addr` is typed as `const struct sockaddr *` in glibc headers but
+    the kernel just dereferences `addrlen` bytes; passing `const void *`
+    avoids dragging <sys/socket.h> into the seeds header.
+  - `addrlen` is `socklen_t` per POSIX, which is `unsigned int` on Linux.
+  - Common sockaddr sizes: sockaddr_in = 16, sockaddr_in6 = 28,
+    sockaddr_un = up to 110 (2-byte family + 108-byte path).
+  - Address family constants (Linux): AF_INET=2, AF_INET6=10, AF_UNIX=1.
+  - Port and IPv4 address must be in network byte order (big-endian);
+    the agent must byte-swap host-order constants at the call site.
+  - On a non-blocking socket (O_NONBLOCK) `connect` returns -1 with
+    errno=EINPROGRESS; completion is detected via poll/epoll for
+    writability, then SO_ERROR via getsockopt.
+  - For IPv6 use struct sockaddr_in6 (28 bytes): u16 family, u16 port,
+    u32 flowinfo, 16-byte addr, u32 scope_id.
+  - Common errno values: ECONNREFUSED (no listener), ETIMEDOUT,
+    ENETUNREACH, EHOSTUNREACH, EACCES, EAFNOSUPPORT.

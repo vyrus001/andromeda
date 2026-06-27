@@ -1,0 +1,57 @@
+name: bind
+platform: linux
+lib: libc
+description: |
+  Assign a local address to a socket. Typically used on a server socket
+  before listen(2) to fix the port/interface it will accept connections
+  on, or on a datagram socket to fix the source address of outgoing
+  packets and the listening address for incoming ones.
+
+lowering: indirect_call
+
+seed:
+  header: linux_libc
+  field: bind
+  access: "s->libc->bind"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1, errno set"
+  params:
+    - { name: sockfd,  c_type: int }
+    - { name: addr,    c_type: "const void *" }
+    - { name: addrlen, c_type: "unsigned int" }
+
+example: |
+  /* Bind an IPv4 TCP socket to 0.0.0.0:8080. struct sockaddr_in laid
+     out manually so the blob doesn't need <netinet/in.h>. */
+  struct {
+      unsigned short sin_family;   /* AF_INET = 2 */
+      unsigned short sin_port;     /* network byte order */
+      unsigned int   sin_addr;     /* network byte order; 0 = INADDR_ANY */
+      unsigned char  sin_zero[8];
+  } sa = { 2, /* htons(8080) */ 0x901F, 0, {0} };
+  int rc = s->libc->bind(sockfd, &sa, sizeof(sa));
+  if (rc < 0) { /* errno set */ }
+
+notes: |
+  - POSIX prototype is `int bind(int, const struct sockaddr *, socklen_t)`.
+    `socklen_t` is `unsigned int` on Linux; `struct sockaddr` is an
+    opaque tag for the address family-specific structs below.
+  - Address-family layouts the agent will commonly emit inline:
+      AF_INET  (2): sin_family u16, sin_port u16 (net order),
+                    sin_addr u32 (net order), 8 bytes padding. 16 bytes.
+      AF_INET6 (10): sin6_family u16, sin6_port u16, sin6_flowinfo u32,
+                     sin6_addr[16] u8, sin6_scope_id u32. 28 bytes.
+      AF_UNIX  (1): sun_family u16, sun_path[108] char. 110 bytes;
+                    use the actual path length + offsetof(sun_path) as
+                    addrlen, or full sizeof for abstract sockets.
+  - Port and IPv4 address fields are in network (big-endian) byte order.
+    The agent should pre-compute htons/htonl at codegen time and emit
+    the byte-swapped constant directly.
+  - Common errnos: EADDRINUSE (port taken), EACCES (privileged port
+    <1024 without CAP_NET_BIND_SERVICE), EINVAL (already bound),
+    EADDRNOTAVAIL (address not local).
+  - For AF_UNIX with a filesystem path, unlink the path first or bind
+    will fail with EADDRINUSE on restart.

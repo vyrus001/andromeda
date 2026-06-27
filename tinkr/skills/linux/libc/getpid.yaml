@@ -1,0 +1,34 @@
+name: getpid
+platform: linux
+lib: libc
+description: |
+  Return the process ID of the calling process. Always succeeds; the
+  PID is a small positive integer assigned by the kernel at process
+  creation. Resolves through the seed struct so the blob carries no
+  symbol reference.
+
+lowering: indirect_call
+
+seed:
+  header: linux_libc
+  field: getpid
+  access: "s->libc->getpid"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "cannot fail"
+  params: []
+
+example: |
+  int pid = s->libc->getpid();
+
+notes: |
+  - POSIX type is pid_t, which is `int` on Linux. Exposed as `int` here
+    to avoid pulling <sys/types.h> into seeds.h.
+  - Cannot fail and does not set errno. No need to check the return.
+  - glibc caches the PID across fork(); musl does not. If the blob is
+    expected to observe PID changes after a bare clone() syscall,
+    prefer linux/syscall/getpid instead of the libc indirection.
+  - Cheap: glibc historically caches the value, so repeated calls don't
+    hit the kernel. Still, hoist out of hot loops if you care.

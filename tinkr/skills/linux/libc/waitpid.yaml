@@ -1,0 +1,53 @@
+name: waitpid
+platform: linux
+lib: libc
+description: |
+  Wait for state changes in a child process. Blocks (unless WNOHANG is
+  set in `options`) until the specified child terminates, is stopped,
+  or is resumed. Returns the PID of the child whose state changed and,
+  if `wstatus` is non-NULL, writes the encoded status there.
+
+lowering: indirect_call
+
+seed:
+  header: linux_libc
+  field: waitpid
+  access: "s->libc->waitpid"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1 on error (errno set); 0 if WNOHANG and no child has changed state"
+  params:
+    - { name: pid,     c_type: int }
+    - { name: wstatus, c_type: "int *" }
+    - { name: options, c_type: int }
+
+example: |
+  int status = 0;
+  int child = s->libc->waitpid(pid, &status, 0);
+  if (child < 0) { /* errno set */ }
+  /* WIFEXITED(status):   (status & 0x7f) == 0
+     WEXITSTATUS(status): (status >> 8) & 0xff */
+
+notes: |
+  - `pid` semantics: >0 wait for that specific PID; 0 wait for any child
+    in the caller's process group; -1 wait for any child (equivalent to
+    wait(2)); <-1 wait for any child whose pgid equals -pid.
+  - Common `options` flags (Linux): WNOHANG=1 (return 0 immediately if
+    no child has changed state), WUNTRACED=2 (also report stopped
+    children), WCONTINUED=8 (also report resumed children).
+  - Status decoding macros (bit layout, useful when emitting inline C
+    instead of pulling in <sys/wait.h>):
+      WIFEXITED(s)   = ((s) & 0x7f) == 0
+      WEXITSTATUS(s) = ((s) >> 8) & 0xff
+      WIFSIGNALED(s) = ((signed char)(((s) & 0x7f) + 1) >> 1) > 0
+      WTERMSIG(s)    = (s) & 0x7f
+      WIFSTOPPED(s)  = ((s) & 0xff) == 0x7f
+      WSTOPSIG(s)    = ((s) >> 8) & 0xff
+  - errno values: ECHILD (no matching child), EINTR (interrupted by a
+    signal handler with SA_RESTART not set), EINVAL (bad `options`).
+  - `wstatus` may be NULL if the caller doesn't care about the status.
+  - For richer info (siginfo_t, child PID even with WNOHANG idle return)
+    prefer waitid(2). For the no-arg "any child" case, wait(2) is the
+    same as waitpid(-1, wstatus, 0).

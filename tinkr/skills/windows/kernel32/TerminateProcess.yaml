@@ -1,0 +1,47 @@
+name: TerminateProcess
+platform: windows
+lib: kernel32
+description: |
+  Terminate the specified process and all of its threads immediately.
+  Unlike ExitProcess, this can target any process for which the caller
+  holds a handle with PROCESS_TERMINATE rights. The process exits with
+  the supplied exit code; no cleanup handlers, DLL unload notifications,
+  or atexit routines run.
+
+lowering: indirect_call
+
+seed:
+  header: windows_kernel32
+  field: TerminateProcess
+  access: "s->kernel32->TerminateProcess"
+
+# MSDN typed names:
+#   HANDLE = void *, UINT = unsigned int, BOOL = int.
+signature:
+  return:
+    c_type: int
+    on_failure: "returns 0 (FALSE); call GetLastError() for code"
+  params:
+    - { name: hProcess,   c_type: "void *" }
+    - { name: uExitCode,  c_type: "unsigned int" }
+
+example: |
+  /* Terminate the current process with exit code 1.
+     (HANDLE)-1 is the current-process pseudo-handle. */
+  s->kernel32->TerminateProcess((void *)-1, 1);
+
+notes: |
+  - hProcess = (void *)-1 is the current-process pseudo-handle; useful
+    for self-termination without calling GetCurrentProcess() first.
+  - hProcess must have been opened with PROCESS_TERMINATE access right
+    when targeting another process (OpenProcess(PROCESS_TERMINATE, ...)).
+  - This is asynchronous in the formal sense: the function may return
+    before the target process has fully exited. Use WaitForSingleObject
+    on the process handle if you need to synchronise.
+  - No DLL_PROCESS_DETACH notifications fire, no C++ destructors run,
+    no buffered I/O is flushed — it is an abrupt kill. Prefer ExitProcess
+    for clean self-termination of the current process.
+  - Win64 ABI: hProcess in RCX, uExitCode in RDX; 32-byte shadow space
+    is reserved by Clang when --target=x86_64-pc-windows-*.
+  - GetLastError() codes commonly observed: ERROR_ACCESS_DENIED (5)
+    when the handle lacks PROCESS_TERMINATE rights, ERROR_INVALID_HANDLE (6).

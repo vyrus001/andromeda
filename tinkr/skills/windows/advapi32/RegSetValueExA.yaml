@@ -1,0 +1,66 @@
+name: RegSetValueExA
+platform: windows
+lib: advapi32
+description: |
+  Set the data and type of a specified value under a registry key. The
+  "A" suffix takes ANSI strings for the value name; for Unicode use
+  RegSetValueExW. The data buffer itself is opaque bytes — its
+  interpretation depends on dwType (REG_SZ, REG_DWORD, REG_BINARY, ...).
+
+lowering: indirect_call
+
+seed:
+  header: windows_advapi32
+  field: RegSetValueExA
+  access: "s->advapi32->RegSetValueExA"
+
+# MSDN named types translated to plain C:
+#   HKEY    -> void *
+#   LPCSTR  -> const char *
+#   DWORD   -> unsigned int
+#   BYTE *  -> const unsigned char *
+#   LSTATUS -> LONG (signed 32-bit; ERROR_SUCCESS == 0)
+signature:
+  return:
+    c_type: int
+    on_failure: "nonzero Win32 error code (ERROR_SUCCESS=0 on success)"
+  params:
+    - { name: hKey,        c_type: "void *" }
+    - { name: lpValueName, c_type: "const char *" }
+    - { name: Reserved,    c_type: "unsigned int" }
+    - { name: dwType,      c_type: "unsigned int" }
+    - { name: lpData,      c_type: "const unsigned char *" }
+    - { name: cbData,      c_type: "unsigned int" }
+
+example: |
+  /* Write a REG_SZ value "Hello" to an already-opened HKEY. */
+  const char *data = "Hello";
+  /* REG_SZ = 1; cbData must include the terminating NUL for REG_SZ. */
+  int rc = s->advapi32->RegSetValueExA(hKey, "Greeting", 0, 1,
+                                       (const unsigned char *)data,
+                                       (unsigned int)(5 + 1));
+  if (rc != 0) { /* rc is a Win32 error code, not via GetLastError */ }
+
+notes: |
+  - Return value is an LSTATUS (Win32 error code) directly — do NOT call
+    GetLastError(). ERROR_SUCCESS == 0 means success.
+  - Reserved MUST be 0.
+  - lpValueName == NULL or "" sets the key's default (unnamed) value.
+  - Common dwType: REG_NONE=0, REG_SZ=1, REG_EXPAND_SZ=2, REG_BINARY=3,
+    REG_DWORD=4 (little-endian), REG_DWORD_BIG_ENDIAN=5, REG_MULTI_SZ=7,
+    REG_QWORD=11.
+  - For REG_SZ/REG_EXPAND_SZ: cbData should include the terminating NUL
+    byte. If omitted, RegGetValue/RegQueryValueEx may misbehave for
+    callers that don't request null-termination explicitly.
+  - For REG_DWORD: lpData points to a 4-byte little-endian value;
+    cbData must be 4.
+  - hKey must have been opened with KEY_SET_VALUE access (or
+    KEY_ALL_ACCESS). Predefined roots like HKEY_CURRENT_USER
+    ((HKEY)0x80000001) are accepted directly without RegOpenKeyEx.
+  - Win64 ABI: first four args in RCX/RDX/R8/R9, remaining (lpData,
+    cbData) on stack after the 32-byte shadow space. Clang handles this
+    automatically under --target=x86_64-pc-windows-*.
+  - advapi32.dll is the classic home; on modern Windows the function is
+    forwarded to kernelbase.dll, but the export name on advapi32 still
+    resolves — the seed entry should point to whatever GetProcAddress
+    returns for "RegSetValueExA" on advapi32.

@@ -1,0 +1,28 @@
+name: read
+platform: macos
+lib: libSystem
+description: |
+  Read up to `count` bytes from file descriptor `fd` into `buf` via libSystem.
+
+lowering: indirect_call
+
+seed:
+  header: macos_libsystem
+  field: read
+  access: "s->libsystem->read"
+
+signature:
+  return:
+    c_type: ssize_t
+    on_failure: "returns -1, errno set; 0 indicates EOF"
+  params:
+    - { name: fd,    c_type: int }
+    - { name: buf,   c_type: "void *" }
+    - { name: count, c_type: size_t }
+
+example: |
+  ssize_t n = s->libsystem->read(0, buf, sizeof buf);
+
+notes: |
+  - Returns 0 on EOF (not an error).
+  - Short reads are legal — loop if you must fill the buffer.

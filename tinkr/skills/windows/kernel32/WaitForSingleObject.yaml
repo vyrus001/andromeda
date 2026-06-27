@@ -1,0 +1,62 @@
+name: WaitForSingleObject
+platform: windows
+lib: kernel32
+description: |
+  Wait until the specified object is in the signaled state or the timeout
+  interval elapses. Used to synchronize on threads, processes, mutexes,
+  events, semaphores, waitable timers, jobs, change notifications, and
+  console input handles.
+
+lowering: indirect_call
+
+seed:
+  header: windows_kernel32
+  field: WaitForSingleObject
+  access: "s->kernel32->WaitForSingleObject"
+
+# MSDN typed names:
+#   HANDLE  -> void *
+#   DWORD   -> unsigned int
+# Return is DWORD with sentinel values:
+#   WAIT_OBJECT_0  = 0x00000000   (signaled)
+#   WAIT_ABANDONED = 0x00000080   (abandoned mutex)
+#   WAIT_TIMEOUT   = 0x00000102   (timed out)
+#   WAIT_FAILED    = 0xFFFFFFFF   (call GetLastError)
+signature:
+  return:
+    c_type: "unsigned int"
+    on_failure: "WAIT_FAILED (0xFFFFFFFF); call GetLastError() for code"
+  params:
+    - { name: hHandle,        c_type: "void *" }
+    - { name: dwMilliseconds, c_type: "unsigned int" }
+
+example: |
+  /* Block until the thread exits, no timeout. INFINITE = 0xFFFFFFFF. */
+  unsigned int r = s->kernel32->WaitForSingleObject(hThread, 0xFFFFFFFF);
+  if (r == 0) {
+      /* WAIT_OBJECT_0: signaled */
+  } else if (r == 0x102) {
+      /* WAIT_TIMEOUT */
+  } else if (r == 0xFFFFFFFF) {
+      /* WAIT_FAILED — GetLastError() */
+  }
+
+notes: |
+  - dwMilliseconds: 0 = poll (return immediately), INFINITE = 0xFFFFFFFF
+    means wait forever. Any other value is the timeout in milliseconds.
+  - Return codes: WAIT_OBJECT_0=0, WAIT_ABANDONED=0x80 (the previous
+    owning thread of a mutex terminated without releasing it; you now own
+    the mutex but the protected state is suspect), WAIT_TIMEOUT=0x102,
+    WAIT_FAILED=0xFFFFFFFF.
+  - hHandle must have been opened with SYNCHRONIZE access (the default
+    for handles returned by CreateThread, CreateProcess, CreateMutex,
+    CreateEvent, CreateSemaphore, etc.).
+  - For auto-reset events and semaphores, a successful wait modifies the
+    object's state (resets the event, decrements the semaphore). Mutexes
+    are acquired by the calling thread on successful return — pair with
+    ReleaseMutex.
+  - Win64 ABI: hHandle in RCX, dwMilliseconds in EDX, 32-byte shadow
+    space reserved by the caller. Clang handles this with
+    --target=x86_64-pc-windows-*.
+  - For multi-object waits use WaitForMultipleObjects; for alertable
+    waits (APC delivery) use WaitForSingleObjectEx.

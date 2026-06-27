@@ -1,0 +1,43 @@
+name: read
+platform: linux
+lib: libc
+description: |
+  Read up to `count` bytes from file descriptor `fd` into `buf` via libc.
+  Resolves at load-time through the seed struct; whatever the loader
+  populates at s->libc->read gets invoked.
+
+lowering: indirect_call
+
+seed:
+  header: linux_libc
+  field:  read
+  access: "s->libc->read"
+
+signature:
+  return:
+    c_type: long
+    on_failure: "returns -1, errno set"
+  params:
+    - { name: fd,    c_type: int }
+    - { name: buf,   c_type: "void *" }
+    - { name: count, c_type: size_t }
+
+example: |
+  char buf[256];
+  long n = s->libc->read(0, buf, sizeof(buf));
+  if (n < 0) { /* errno set */ }
+  else if (n == 0) { /* EOF */ }
+
+notes: |
+  - Return value is `ssize_t` in POSIX; portably typed as `long` here so
+    seeds.h need not pull in <sys/types.h>.
+  - Short reads are legal and common (pipes, sockets, terminals). Loop
+    if you need exactly `count` bytes.
+  - Return of 0 means end-of-file for regular files / orderly shutdown
+    for streams; it is NOT an error.
+  - `buf` must be writable for at least `count` bytes; the kernel may
+    write fewer but never more.
+  - On EINTR (signal during blocking read) the call returns -1 with
+    errno=EINTR; retry if appropriate.
+  - For non-blocking fds, -1 with errno=EAGAIN/EWOULDBLOCK indicates
+    "no data right now".

@@ -1,0 +1,46 @@
+name: objc_msgSend
+platform: macos
+lib: libobjc
+description: |
+  Send an Objective-C message. Variadic in its raw form, but callers
+  MUST cast to a typed function pointer matching the selector's
+  signature before invoking — especially on arm64, where the variadic
+  calling convention differs from the named-arg one.
+
+lowering: indirect_call
+
+seed:
+  header: macos_libobjc
+  field: objc_msgSend
+  access: "s->libobjc->objc_msgSend"
+  # Opaque pointer in the seed because the actual call signature varies
+  # per selector. Always cast at the call site to a typed fn-pointer.
+  type: "void *"
+
+# Signature here is informational only — seeds.h stores the field as
+# `void *` (per seed.type above). The agent must build a typed function
+# pointer per call site.
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "depends on selector; nil-receiver returns 0 silently"
+  params:
+    - { name: receiver, c_type: "void *" }  # id
+    - { name: op,       c_type: "void *" }  # SEL
+  variadic: true
+
+example: |
+  /* Direct use (not recommended — prefer per-selector skill helpers). */
+  void *cls = s->libobjc->objc_getClass("NSString");
+  void *sel = s->libobjc->sel_registerName("stringWithUTF8String:");
+  typedef void *(*msg_t)(void *, void *, const char *);
+  void *str = ((msg_t)s->libobjc->objc_msgSend)(cls, sel, "hi");
+
+notes: |
+  - Apple Silicon (arm64) ABI quirk: variadic args go on the stack,
+    named args go in registers. Casting objc_msgSend to a typed
+    non-variadic function pointer with the actual arg count fixes this.
+  - For class methods, receiver = the Class (from objc_getClass).
+  - For instance methods, receiver = the instance.
+  - Selector skills (lowering: objc_msgsend) emit a typed helper
+    function at file scope that wraps this cast cleanly.

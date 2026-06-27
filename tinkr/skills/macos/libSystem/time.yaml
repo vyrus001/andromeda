@@ -1,0 +1,38 @@
+name: time
+platform: macos
+lib: libSystem
+description: |
+  Return the current calendar time as seconds since the Unix epoch
+  (1970-01-01 00:00:00 UTC). If `tloc` is non-NULL, the value is also
+  stored at `*tloc`. Resolves through the seed struct so the blob has
+  no static dependency on libSystem.
+
+lowering: indirect_call
+
+seed:
+  header: macos_libsystem
+  field: time
+  access: "s->libsystem->time"
+
+signature:
+  return:
+    c_type: "long long"
+    on_failure: "returns (time_t)-1, errno set"
+  params:
+    - { name: tloc, c_type: "long long *" }
+
+example: |
+  long long now = s->libsystem->time(NULL);
+  if (now == -1) { /* errno set */ }
+
+notes: |
+  - The Apple-typed return is `time_t`, which on all macOS targets
+    (x86_64 and arm64) is a signed 64-bit integer. We expose it as
+    `long long` to keep seeds.h free of <sys/types.h>.
+  - The `tloc` parameter is typed `time_t *` on Apple; pass NULL when
+    you only want the return value. If non-NULL, it must point to
+    writable storage for one 64-bit value.
+  - Resolution is one second. For finer-grained timestamps use
+    gettimeofday (microseconds) or clock_gettime (nanoseconds).
+  - Subject to the system clock; not monotonic. Use
+    clock_gettime(CLOCK_MONOTONIC, ...) for interval measurements.

@@ -1,0 +1,79 @@
+name: open
+platform: macos
+lib: bsd-syscall
+description: |
+  Open or create a file via the BSD-class syscall directly, bypassing
+  libSystem. Returns a file descriptor on success. The syscall number
+  is baked into inline asm by the helper; the blob carries no dynamic
+  dependency on libSystem for this call.
+
+lowering: syscall
+
+signature:
+  return:
+    c_type: int
+    on_failure: "negative -errno on error (carry-flag converted by helper)"
+  params:
+    - { name: path,  c_type: "const char *" }
+    - { name: flags, c_type: int }
+    - { name: mode,  c_type: "unsigned int" }
+
+arch:
+  arm64:
+    syscall_number: 5    # SYS_open
+    helper: |
+      static int sys_open(const char *path, int flags, unsigned int mode) {
+          register long x0  __asm__("x0")  = (long)path;
+          register long x1  __asm__("x1")  = (long)flags;
+          register long x2  __asm__("x2")  = (long)mode;
+          register long x16 __asm__("x16") = 5;   /* SYS_open */
+          __asm__ volatile (
+              "svc #0x80\n\t"
+              "b.cc 1f\n\t"
+              "neg x0, x0\n"   /* on error: x0 = errno -> -errno */
+              "1:"
+              : "+r"(x0)
+              : "r"(x1), "r"(x2), "r"(x16)
+              : "cc", "memory"
+          );
+          return (int)x0;
+      }
+  x86_64:
+    syscall_number: 5    # SYS_open; BSD class encoded in upper byte.
+    helper: |
+      static int sys_open(const char *path, int flags, unsigned int mode) {
+          long ret;
+          __asm__ volatile (
+              "syscall\n\t"
+              "jnc 1f\n\t"
+              "negq %%rax\n"   /* on error: rax = errno -> -errno */
+              "1:"
+              : "=a"(ret)
+              : "0"((long)0x2000005),   /* (BSD class << 24) | SYS_open */
+                "D"(path), "S"((long)flags), "d"((long)mode)
+              : "rcx", "r11", "cc", "memory"
+          );
+          return (int)ret;
+      }
+
+example: |
+  /* O_WRONLY|O_CREAT|O_TRUNC = 1|0x200|0x400 = 0x601, mode 0644 */
+  int fd = sys_open("/tmp/data", 0x601, 0644);
+  if (fd < 0) { /* errno = -fd */ }
+
+notes: |
+  - macOS syscalls indicate failure via the carry flag (CF on x86_64,
+    C flag on arm64), not via the sign of the return value. The helper
+    normalises to the Linux-style "negative = -errno" convention.
+  - On x86_64 macOS the syscall number embeds the BSD class in the
+    upper byte: SYS_open = 5, encoded as 0x2000005.
+  - macOS open(2) flag values (differ from Linux in several cases):
+    O_RDONLY=0, O_WRONLY=1, O_RDWR=2, O_NONBLOCK=4, O_APPEND=8,
+    O_CREAT=0x200, O_TRUNC=0x400, O_EXCL=0x800, O_CLOEXEC=0x1000000.
+  - `mode` is only consulted when O_CREAT is set in `flags`; pass 0
+    otherwise. Standard octal permission bits (e.g. 0644, 0600).
+  - Apple discourages direct syscalls; numbers occasionally change
+    across macOS versions. Prefer macos/libSystem/open (indirect_call)
+    for long-lived tooling.
+  - The helper is emitted at file scope; SheLLVM's flatten pass folds
+    it into the entry function, leaving no standalone symbol in the blob.

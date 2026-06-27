@@ -1,0 +1,51 @@
+name: URLWithString
+platform: macos
+lib: Foundation
+class: NSURL
+description: |
+  Construct an autoreleased NSURL from an NSString. Equivalent to
+  [NSURL URLWithString:str]. Returns nil if the string is not a
+  syntactically valid URL per RFC 2396.
+
+lowering: objc_msgsend
+
+requires:
+  - macos/libobjc/objc_getClass
+  - macos/libobjc/sel_registerName
+  - macos/libobjc/objc_msgSend
+
+class_name: NSURL
+selector: "URLWithString:"
+receiver_kind: class
+
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "nil (NULL) if the string is not a valid URL"
+  params:
+    - { name: urlString, c_type: "void *" }
+
+helper: |
+  static void *NSURL_URLWithString(struct macos_libobjc *o,
+                                   void *urlString) {
+      void *cls = o->objc_getClass("NSURL");
+      void *sel = o->sel_registerName("URLWithString:");
+      typedef void *(*msg_t)(void *, void *, void *);
+      return ((msg_t)o->objc_msgSend)(cls, sel, urlString);
+  }
+
+example: |
+  void *s_url = NSString_stringWithUTF8String(s->libobjc, "https://example.com");
+  void *url   = NSURL_URLWithString(s->libobjc, s_url);
+  if (!url) { /* invalid URL string */ }
+
+notes: |
+  - `urlString` is an NSString * (id). Build it via
+    NSString_stringWithUTF8String or any other NSString constructor.
+  - Returns an autoreleased NSURL *. For longer-lived references retain
+    it (objc_msgSend with selector "retain") or use NSURL.alloc +
+    initWithString:.
+  - Returns nil for malformed inputs — always null-check before passing
+    to NSURLSession or other consumers, which will crash on a nil URL.
+  - For file paths prefer +fileURLWithPath: (a separate skill); this
+    method expects a fully-formed URL string with a scheme.

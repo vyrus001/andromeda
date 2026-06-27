@@ -1,0 +1,50 @@
+name: GetLastError
+platform: windows
+lib: kernel32
+description: |
+  Retrieve the calling thread's last-error code. Most Win32 APIs that
+  signal failure via a sentinel return value (FALSE, INVALID_HANDLE_VALUE,
+  NULL, etc.) set this thread-local code as a side effect; call
+  GetLastError() immediately after the failing call to recover the
+  specific reason.
+
+lowering: indirect_call
+
+seed:
+  header: windows_kernel32
+  field: GetLastError
+  access: "s->kernel32->GetLastError"
+
+# MSDN typed names (informational):
+#   DWORD = unsigned int   (32-bit unsigned, Win32 error code)
+signature:
+  return:
+    c_type: "unsigned int"
+    on_failure: "no failure mode; returns 0 if no error has been recorded"
+  params: []
+
+example: |
+  void *h = s->kernel32->CreateFileW(path, 0x80000000, 1, NULL, 3, 0x80, NULL);
+  if (h == (void *)-1) {
+      unsigned int err = s->kernel32->GetLastError();
+      /* err == 2 (ERROR_FILE_NOT_FOUND), 5 (ERROR_ACCESS_DENIED), ... */
+  }
+
+notes: |
+  - The last-error value is thread-local; calls on other threads do
+    not perturb it.
+  - Call GetLastError() IMMEDIATELY after the failing API. Intervening
+    successful Win32 calls usually preserve the code, but some helper
+    functions (and the C runtime) may overwrite it. Don't rely on it
+    surviving across unrelated work.
+  - GetLastError itself never fails and has no error indicator; a
+    return of 0 means ERROR_SUCCESS (no error recorded).
+  - Common codes: 2 = ERROR_FILE_NOT_FOUND, 3 = ERROR_PATH_NOT_FOUND,
+    5 = ERROR_ACCESS_DENIED, 6 = ERROR_INVALID_HANDLE,
+    87 = ERROR_INVALID_PARAMETER, 122 = ERROR_INSUFFICIENT_BUFFER,
+    234 = ERROR_MORE_DATA, 997 = ERROR_IO_PENDING.
+  - For NTSTATUS-returning ntdll calls, GetLastError is NOT set; use
+    the returned NTSTATUS directly (optionally translated via
+    RtlNtStatusToDosError).
+  - Win64 ABI: zero args, return in EAX/RAX. No shadow space cost
+    beyond the standard 32-byte caller reserve clang already emits.

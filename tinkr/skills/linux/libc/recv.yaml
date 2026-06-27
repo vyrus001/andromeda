@@ -1,0 +1,49 @@
+name: recv
+platform: linux
+lib: libc
+description: |
+  Receive data from a connected socket. Equivalent to read(2) on a
+  socket fd when `flags` is 0, but also supports MSG_* flags for peek,
+  out-of-band data, non-blocking override, and similar behaviours.
+
+lowering: indirect_call
+
+seed:
+  header: linux_libc
+  field: recv
+  access: "s->libc->recv"
+
+signature:
+  return:
+    c_type: long
+    on_failure: "returns -1, errno set; returns 0 on orderly peer shutdown"
+  params:
+    - { name: sockfd, c_type: int }
+    - { name: buf,    c_type: "void *" }
+    - { name: len,    c_type: size_t }
+    - { name: flags,  c_type: int }
+
+example: |
+  char buf[4096];
+  long n = s->libc->recv(fd, buf, sizeof buf, 0);
+  if (n < 0) { /* errno set */ }
+  else if (n == 0) { /* peer closed connection */ }
+
+notes: |
+  - Return type is glibc `ssize_t`; expressed as `long` to avoid pulling
+    in <sys/types.h> in seeds.h. Same width on all Linux ABIs we target.
+  - A return of 0 is NOT an error — it means the peer performed an
+    orderly shutdown (FIN received). Distinguish from -1 (errno) carefully.
+  - Common `flags` (Linux): MSG_PEEK=0x02 (read without consuming),
+    MSG_OOB=0x01 (out-of-band data), MSG_WAITALL=0x100 (block until full
+    request satisfied), MSG_DONTWAIT=0x40 (non-blocking for this call only),
+    MSG_NOSIGNAL=0x4000 (suppress SIGPIPE — more relevant to send()).
+  - On a non-blocking socket (or with MSG_DONTWAIT) returns -1 with
+    errno=EAGAIN/EWOULDBLOCK (11) when no data is available.
+  - `recv(fd, buf, len, 0)` is identical to `read(fd, buf, len)` for
+    sockets; prefer recv when you need flags, otherwise either works.
+  - Short reads are legal even without MSG_DONTWAIT — loop with
+    MSG_WAITALL if you must fill the buffer (but note MSG_WAITALL still
+    returns short on signal or error).
+  - `buf` must be writable for at least `len` bytes for the duration
+    of the call.

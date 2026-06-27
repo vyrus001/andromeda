@@ -1,0 +1,64 @@
+name: NtWaitForSingleObject
+platform: windows
+lib: ntdll
+description: |
+  Native API wait primitive. Blocks the calling thread until the
+  specified dispatcher object (event, mutex, semaphore, thread,
+  process, timer, etc.) is signaled, or until an optional timeout
+  expires. Lower-level counterpart to WaitForSingleObject /
+  WaitForSingleObjectEx in kernel32.
+
+lowering: indirect_call
+
+seed:
+  header: windows_ntdll
+  field: NtWaitForSingleObject
+  access: "s->ntdll->NtWaitForSingleObject"
+
+# Typed names translated to plain C:
+#   HANDLE     -> void *
+#   BOOLEAN    -> unsigned char   (1 byte, not BOOL)
+#   PLARGE_INTEGER -> long long * (signed 64-bit, 100ns units)
+#   NTSTATUS   -> int             (0 = STATUS_SUCCESS)
+signature:
+  return:
+    c_type: int
+    on_failure: "NTSTATUS != 0; common values: STATUS_TIMEOUT (0x102), STATUS_ALERTED (0x101), STATUS_USER_APC (0xC0), failure codes have top bit set"
+  params:
+    - { name: Handle,    c_type: "void *" }
+    - { name: Alertable, c_type: "unsigned char" }
+    - { name: Timeout,   c_type: "long long *" }
+
+example: |
+  /* Wait up to 5 seconds (5000 ms) on an event handle.
+     Timeout is in 100-nanosecond units; negative = relative,
+     positive = absolute (system time). 5s relative = -50000000. */
+  long long timeout = -50000000LL;
+  int status = s->ntdll->NtWaitForSingleObject(hEvent, 0, &timeout);
+  if (status == 0) { /* signaled */ }
+  else if (status == 0x102) { /* STATUS_TIMEOUT */ }
+
+notes: |
+  - Timeout encoding (LARGE_INTEGER, 100ns ticks):
+      NULL pointer  = wait forever (INFINITE).
+      negative value = relative timeout from now (e.g. -10000000 = 1s).
+      positive value = absolute time (FILETIME / system time epoch).
+  - Alertable: 0 = non-alertable wait; 1 = wait can be interrupted by
+    a queued user-mode APC, in which case the call returns STATUS_USER_APC
+    (0xC0) or STATUS_ALERTED (0x101) and the caller should typically
+    re-wait.
+  - Return values worth checking explicitly:
+      0x00000000 STATUS_SUCCESS  — object signaled (also: WAIT_OBJECT_0).
+      0x00000080 STATUS_ABANDONED — mutex owner died without releasing.
+      0x00000101 STATUS_ALERTED  — alertable wait interrupted.
+      0x000000C0 STATUS_USER_APC — APC delivered during alertable wait.
+      0x00000102 STATUS_TIMEOUT  — Timeout elapsed.
+      Anything with top bit set (0x8xxxxxxx / 0xCxxxxxxx) is failure.
+  - kernel32's WaitForSingleObject translates these NTSTATUS values into
+    the WAIT_* constants (WAIT_OBJECT_0=0, WAIT_TIMEOUT=0x102,
+    WAIT_ABANDONED=0x80, WAIT_FAILED=0xFFFFFFFF). At the Nt layer you
+    see the raw NTSTATUS.
+  - The Handle must have SYNCHRONIZE access (granted by default for
+    most handles created via Nt/Zw object creation routines).
+  - Win64 ABI: three args go in RCX, RDX, R8; no stack args. Clang
+    handles this with --target=x86_64-pc-windows-*.

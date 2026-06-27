@@ -1,0 +1,42 @@
+name: unlink
+platform: linux
+lib: libc
+description: |
+  Delete a name from the filesystem. If that name was the last link to
+  a file and no processes have the file open, the file is removed and
+  its space reclaimed. If the name referred to a symlink, the link is
+  removed. Directories cannot be removed with unlink; use rmdir or
+  unlinkat with AT_REMOVEDIR for that.
+
+lowering: indirect_call
+
+seed:
+  header: linux_libc
+  field: unlink
+  access: "s->libc->unlink"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1, errno set"
+  params:
+    - { name: pathname, c_type: "const char *" }
+
+example: |
+  int rc = s->libc->unlink("/tmp/scratch");
+  if (rc < 0) { /* errno: ENOENT, EACCES, EISDIR, EBUSY, ... */ }
+
+notes: |
+  - `pathname` must be a null-terminated C string. Relative paths are
+    resolved against the process's current working directory.
+  - Returns -1 with errno=EISDIR when called on a directory on Linux
+    (POSIX permits EPERM here; Linux uses EISDIR). For directories,
+    call rmdir or unlinkat(..., AT_REMOVEDIR).
+  - If the file is open in any process, the directory entry is removed
+    immediately but the inode persists until the last fd is closed.
+    This is the classic "unlink-then-write to a hidden tmp file" idiom.
+  - On arm64 Linux there is no `unlink` syscall — libc translates to
+    `unlinkat(AT_FDCWD, pathname, 0)`. The seed entry hides that.
+  - Common errnos: ENOENT (no such file), EACCES (search/write denied
+    on containing dir), EROFS (read-only fs), EBUSY (still in use, e.g.
+    a mount point), ENAMETOOLONG, ELOOP.

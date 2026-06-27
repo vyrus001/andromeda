@@ -1,0 +1,48 @@
+name: date
+platform: macos
+lib: Foundation
+class: NSDate
+description: |
+  Construct an autoreleased NSDate representing the current date and
+  time (the moment the call is made). Equivalent to [NSDate date].
+
+lowering: objc_msgsend
+
+requires:
+  - macos/libobjc/objc_getClass
+  - macos/libobjc/sel_registerName
+  - macos/libobjc/objc_msgSend
+
+class_name: NSDate
+selector: "date"
+receiver_kind: class
+
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "NULL only if the runtime can't find NSDate (should not happen on macOS)"
+  params: []
+
+helper: |
+  static void *NSDate_date(struct macos_libobjc *o) {
+      void *cls = o->objc_getClass("NSDate");
+      void *sel = o->sel_registerName("date");
+      typedef void *(*msg_t)(void *, void *);
+      return ((msg_t)o->objc_msgSend)(cls, sel);
+  }
+
+example: |
+  void *now = NSDate_date(s->libobjc);
+
+notes: |
+  - Returns an autoreleased NSDate set to the current wall-clock time
+    (per the system clock; affected by NTP adjustments and user changes).
+  - Receiver is the NSDate Class object (class method, not instance).
+  - The returned id (void *) is autoreleased; for a long-running blob
+    that needs to retain the object, send it `retain` or copy out the
+    interval via timeIntervalSinceReferenceDate.
+  - Typed cast of objc_msgSend is mandatory on arm64: the variadic-call
+    ABI differs from the named-arg ABI, and the seed stores the function
+    as opaque `void *`.
+  - For a specific moment instead of "now", use dateWithTimeIntervalSince1970:
+    or dateWithTimeIntervalSinceReferenceDate: (separate skills).

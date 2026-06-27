@@ -1,0 +1,32 @@
+name: write
+platform: macos
+lib: libSystem
+description: |
+  Write up to `count` bytes from `buf` to file descriptor `fd`. libSystem
+  is macOS's umbrella C runtime (libc + libm + libpthread + libdyld); the
+  POSIX `write` symbol resolves to /usr/lib/system/libsystem_kernel.dylib
+  re-exported via libSystem.B.dylib.
+
+lowering: indirect_call
+
+seed:
+  header: macos_libsystem
+  field: write
+  access: "s->libsystem->write"
+
+signature:
+  return:
+    c_type: ssize_t
+    on_failure: "returns -1, errno set"
+  params:
+    - { name: fd,    c_type: int }
+    - { name: buf,   c_type: "const void *" }
+    - { name: count, c_type: size_t }
+
+example: |
+  ssize_t n = s->libsystem->write(1, msg, msg_len);
+
+notes: |
+  - ABI-identical to linux/libc/write.
+  - Partial writes are legal — loop if you must write the full buffer.
+  - Stdout = fd 1, stderr = fd 2 (same as POSIX).

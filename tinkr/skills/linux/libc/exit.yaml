@@ -1,0 +1,44 @@
+name: exit
+platform: linux
+lib: libc
+description: |
+  Terminate the calling process via libc. Performs full C-runtime
+  shutdown: runs functions registered with atexit(3) and on_exit(3),
+  flushes and closes all open stdio streams, removes tmpfile(3)
+  files, then invokes _exit(2) with the given status. Does not
+  return.
+
+lowering: indirect_call
+
+seed:
+  header: linux_libc
+  field: exit
+  access: "s->libc->exit"
+
+signature:
+  return:
+    c_type: void
+    on_failure: "does not return; no failure path"
+  params:
+    - { name: status, c_type: int }
+
+example: |
+  s->libc->exit(0);
+  /* unreachable */
+
+notes: |
+  - Only the low 8 bits of `status` are observable by the parent via
+    wait(2)/waitpid(2) (WEXITSTATUS masks to 0xff). Conventionally
+    0 = success, non-zero = failure; EXIT_SUCCESS=0, EXIT_FAILURE=1.
+  - Marked `noreturn` in <stdlib.h>; emitted code after the call is
+    dead. The agent may follow the call with __builtin_unreachable()
+    to help the optimizer.
+  - Runs atexit/on_exit handlers in LIFO order and flushes stdio. If
+    you want to skip all of that (e.g., to avoid touching libc global
+    state from a blob), use linux/libc/_exit or the raw exit_group
+    syscall instead.
+  - Thread behaviour: exit() terminates the entire process, not just
+    the calling thread. For thread-local teardown use pthread_exit.
+  - Safe to call from a blob even before main() would normally run,
+    provided libc has been initialized by the host process (which it
+    has, since we resolved the seed pointer from a live libc).

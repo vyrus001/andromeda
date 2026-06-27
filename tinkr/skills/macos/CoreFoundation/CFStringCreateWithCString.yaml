@@ -1,0 +1,55 @@
+name: CFStringCreateWithCString
+platform: macos
+lib: CoreFoundation
+description: |
+  Create an immutable CFString from a null-terminated C string in the
+  specified encoding. Returns a new CFStringRef the caller owns
+  (must be released with CFRelease). For UTF-8 input, pass
+  kCFStringEncodingUTF8 (0x08000100).
+
+lowering: indirect_call
+
+seed:
+  header: macos_corefoundation
+  field: CFStringCreateWithCString
+  access: "s->corefoundation->CFStringCreateWithCString"
+
+# Apple typed names (informational):
+#   CFAllocatorRef     -> void *  (opaque; NULL == kCFAllocatorDefault)
+#   CFStringRef        -> void *  (opaque)
+#   CFStringEncoding   -> unsigned int (UInt32)
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "NULL if cStr cannot be decoded under `encoding` or on OOM"
+  params:
+    - { name: alloc,    c_type: "void *" }
+    - { name: cStr,     c_type: "const char *" }
+    - { name: encoding, c_type: "unsigned int" }
+
+example: |
+  /* kCFStringEncodingUTF8 = 0x08000100 */
+  void *str = s->corefoundation->CFStringCreateWithCString(
+      NULL, "hello", 0x08000100);
+  if (str) {
+      /* ... use str ... */
+      s->corefoundation->CFRelease(str);
+  }
+
+notes: |
+  - alloc=NULL selects kCFAllocatorDefault, which is what nearly every
+    caller wants.
+  - Common CFStringEncoding values: kCFStringEncodingMacRoman=0,
+    kCFStringEncodingWindowsLatin1=0x0500, kCFStringEncodingISOLatin1=0x0201,
+    kCFStringEncodingNextStepLatin=0x0B01, kCFStringEncodingASCII=0x0600,
+    kCFStringEncodingUnicode=0x0100, kCFStringEncodingUTF8=0x08000100,
+    kCFStringEncodingNonLossyASCII=0x0BFF.
+  - Follows the Create Rule: the returned CFStringRef has a +1 retain
+    count. Pair every successful call with CFRelease (see
+    macos/CoreFoundation/CFRelease) to avoid leaks.
+  - Returns NULL if `cStr` contains byte sequences invalid under the
+    requested encoding (e.g. malformed UTF-8). Check before use.
+  - CFStringRef is toll-free bridged with NSString *; the same pointer
+    can be passed to objc_msgSend-based APIs expecting an NSString.
+  - `cStr` must remain valid only for the duration of the call; the
+    new CFString owns its own copy of the bytes.

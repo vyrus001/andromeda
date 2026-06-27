@@ -1,0 +1,32 @@
+name: mprotect
+platform: macos
+lib: libSystem
+description: |
+  Change protection on a region of mapped memory.
+
+lowering: indirect_call
+
+seed:
+  header: macos_libsystem
+  field: mprotect
+  access: "s->libsystem->mprotect"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1, errno set"
+  params:
+    - { name: addr, c_type: "void *" }
+    - { name: len,  c_type: size_t }
+    - { name: prot, c_type: int }
+
+example: |
+  if (s->libsystem->mprotect(page, 4096, /* PROT_READ|PROT_EXEC */ 5) < 0) {
+      /* errno set */
+  }
+
+notes: |
+  - Apple Silicon with hardened runtime forbids RWX. Use MAP_JIT at mmap
+    time and toggle write/execute via pthread_jit_write_protect_np
+    instead of mprotect.
+  - `addr` must be page-aligned (16K on Apple Silicon, 4K on Intel macOS).

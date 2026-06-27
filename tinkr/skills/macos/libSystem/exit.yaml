@@ -1,0 +1,29 @@
+name: exit
+platform: macos
+lib: libSystem
+description: |
+  Terminate the process cleanly, running atexit handlers and flushing
+  stdio buffers. Use `_exit` (different skill) to skip cleanup.
+
+lowering: indirect_call
+
+seed:
+  header: macos_libsystem
+  field: exit
+  access: "s->libsystem->exit"
+
+signature:
+  return:
+    c_type: void
+    on_failure: "never returns"
+  params:
+    - { name: status, c_type: int }
+
+example: |
+  s->libsystem->exit(0);
+
+notes: |
+  - `_Noreturn` in standard C, but seeds carry a plain function pointer.
+  - The blob's `int entry(...) { ... return 0; }` returns normally; call
+    `exit` only when you specifically want process termination, not just
+    blob completion.

@@ -1,0 +1,53 @@
+name: bytes
+platform: macos
+lib: Foundation
+class: NSData
+description: |
+  Return a pointer to the receiver's underlying byte buffer. Equivalent
+  to: [data bytes]. The buffer is owned by the NSData instance; callers
+  must not free it and must not use it past the NSData's lifetime.
+
+lowering: objc_msgsend
+
+requires:
+  - macos/libobjc/objc_getClass
+  - macos/libobjc/sel_registerName
+  - macos/libobjc/objc_msgSend
+
+class_name: NSData
+selector: "bytes"
+receiver_kind: instance
+
+signature:
+  return:
+    c_type: "const void *"
+    on_failure: "may return NULL if the NSData is empty (length == 0)"
+  params:
+    - { name: data, c_type: "void *" }   # NSData * receiver
+
+helper: |
+  static const void *NSData_bytes(struct macos_libobjc *o, void *data) {
+      void *sel = o->sel_registerName("bytes");
+      typedef const void *(*msg_t)(void *, void *);
+      return ((msg_t)o->objc_msgSend)(data, sel);
+  }
+
+example: |
+  const void *p = NSData_bytes(s->libobjc, data);
+  /* read p[0..length-1]; do NOT free(p) */
+
+notes: |
+  - Instance method: receiver is the NSData * itself, not the class.
+    No objc_getClass lookup is needed in the helper.
+  - The returned pointer is owned by the NSData. It becomes invalid
+    when the NSData is deallocated (e.g., when an autorelease pool
+    drains, or after the last retain is released).
+  - For an empty NSData (length == 0) the returned pointer may be
+    NULL or a non-dereferenceable sentinel; check `length` first via
+    [NSData length] if you need to read bytes.
+  - If you need a mutable buffer, use NSMutableData's `mutableBytes`
+    instead — `bytes` returns `const void *` (Apple typed name) which
+    we expose as such here so the C compiler enforces read-only use.
+  - arm64 ABI: the typed cast in the helper is critical — calling
+    objc_msgSend through its raw variadic prototype on Apple Silicon
+    uses a different calling convention than the named-arg form.

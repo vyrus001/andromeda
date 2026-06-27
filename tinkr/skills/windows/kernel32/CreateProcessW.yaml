@@ -1,0 +1,81 @@
+name: CreateProcessW
+platform: windows
+lib: kernel32
+description: |
+  Create a new process and its primary thread. The "W" suffix takes
+  UTF-16 wide strings for the application name and command line; for
+  ANSI strings use CreateProcessA (a separate skill).
+
+lowering: indirect_call
+
+seed:
+  header: windows_kernel32
+  field: CreateProcessW
+  access: "s->kernel32->CreateProcessW"
+
+# MSDN named types translated to plain C:
+#   LPCWSTR              -> const unsigned short *   (UTF-16)
+#   LPWSTR               -> unsigned short *         (mutable UTF-16 buffer!)
+#   LPSECURITY_ATTRIBUTES -> void *                  (opaque struct; NULL for default)
+#   BOOL                 -> int (0 = FALSE, nonzero = TRUE)
+#   DWORD                -> unsigned int
+#   LPVOID               -> void *
+#   LPSTARTUPINFOW       -> void * (opaque STARTUPINFOW; caller fills)
+#   LPPROCESS_INFORMATION -> void * (opaque PROCESS_INFORMATION; out param)
+signature:
+  return:
+    c_type: int
+    on_failure: "returns 0 (FALSE); call GetLastError() for code"
+  params:
+    - { name: lpApplicationName,    c_type: "const unsigned short *" }
+    - { name: lpCommandLine,        c_type: "unsigned short *" }
+    - { name: lpProcessAttributes,  c_type: "void *" }
+    - { name: lpThreadAttributes,   c_type: "void *" }
+    - { name: bInheritHandles,      c_type: int }
+    - { name: dwCreationFlags,      c_type: "unsigned int" }
+    - { name: lpEnvironment,        c_type: "void *" }
+    - { name: lpCurrentDirectory,   c_type: "const unsigned short *" }
+    - { name: lpStartupInfo,        c_type: "void *" }
+    - { name: lpProcessInformation, c_type: "void *" }
+
+example: |
+  /* Launch "C:\Windows\System32\notepad.exe" with no args.
+     STARTUPINFOW.cb = sizeof(STARTUPINFOW) = 104 on x64; the rest is
+     zero-initialised. PROCESS_INFORMATION is 24 bytes on x64. */
+  unsigned char si[104] = {0};
+  *(unsigned int *)si = 104;          /* STARTUPINFOW.cb */
+  unsigned char pi[24] = {0};
+
+  static const unsigned short app[] = {
+      'C',':','\\','W','i','n','d','o','w','s','\\','S','y','s','t','e','m','3','2','\\',
+      'n','o','t','e','p','a','d','.','e','x','e', 0
+  };
+  int ok = s->kernel32->CreateProcessW(
+      app, NULL, NULL, NULL, 0, 0, NULL, NULL, si, pi);
+  /* pi now contains hProcess, hThread, dwProcessId, dwThreadId. */
+
+notes: |
+  - lpCommandLine is LPWSTR (mutable) — Windows may modify the buffer
+    in place during parsing. Pass either NULL, or a writable UTF-16
+    buffer (NOT a string literal in read-only memory). If you pass
+    both lpApplicationName and lpCommandLine, argv[0] of the child is
+    taken from lpCommandLine; convention is to repeat the program name.
+  - At least one of lpApplicationName / lpCommandLine must be non-NULL.
+  - Strings are UTF-16: build with `static const unsigned short s[] = { ... , 0 };`
+    inside the entry function so SheLLVM's global2stack inlines them.
+  - lpStartupInfo points to a STARTUPINFOW. Its first field (cb) MUST
+    be set to sizeof(STARTUPINFOW) = 104 bytes on x64 (68 on x86); the
+    structure must be zero-initialised otherwise. Treat as an opaque
+    byte buffer when emitting from the agent.
+  - lpProcessInformation receives a PROCESS_INFORMATION struct
+    (24 bytes on x64, 16 on x86): { HANDLE hProcess; HANDLE hThread;
+    DWORD dwProcessId; DWORD dwThreadId; }. The caller OWNS hProcess
+    and hThread and MUST CloseHandle them when done, or they leak.
+  - Common dwCreationFlags: CREATE_SUSPENDED=0x4, DETACHED_PROCESS=0x8,
+    CREATE_NEW_CONSOLE=0x10, CREATE_NO_WINDOW=0x08000000,
+    CREATE_UNICODE_ENVIRONMENT=0x400.
+  - bInheritHandles=TRUE (nonzero) causes the child to inherit every
+    inheritable handle in the parent; usually pass 0 (FALSE).
+  - Win64 ABI: first four args in RCX, RDX, R8, R9; the remaining six
+    args go on the stack after a 32-byte shadow space. Clang handles
+    this automatically when --target=x86_64-pc-windows-*.

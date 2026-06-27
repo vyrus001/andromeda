@@ -1,0 +1,55 @@
+name: sharedApplication
+platform: macos
+lib: AppKit
+class: NSApplication
+description: |
+  Return the NSApplication singleton, creating it on first invocation.
+  Equivalent to: [NSApplication sharedApplication]. This must be called
+  before performing any AppKit UI operations — it bootstraps the global
+  application object that owns the run loop, event dispatch, and the
+  connection to the window server.
+
+lowering: objc_msgsend
+
+requires:
+  - macos/libobjc/objc_getClass
+  - macos/libobjc/sel_registerName
+  - macos/libobjc/objc_msgSend
+
+class_name: NSApplication
+selector: "sharedApplication"
+receiver_kind: class
+
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "should not fail under normal conditions; returns the singleton id"
+  params: []
+
+helper: |
+  static void *NSApplication_sharedApplication(struct macos_libobjc *o) {
+      void *cls = o->objc_getClass("NSApplication");
+      void *sel = o->sel_registerName("sharedApplication");
+      typedef void *(*msg_t)(void *, void *);
+      return ((msg_t)o->objc_msgSend)(cls, sel);
+  }
+
+example: |
+  void *app = NSApplication_sharedApplication(s->libobjc);
+  /* app is now the NSApplication singleton; safe to message it
+     (e.g. setActivationPolicy:, run, activateIgnoringOtherApps:). */
+
+notes: |
+  - Linking AppKit (via the loader populating Foundation/AppKit-backed
+    classes through libobjc) is required for the "NSApplication" class
+    to be registered. The actual call is still a libobjc objc_msgSend;
+    AppKit's only role is providing the class via its framework load.
+  - This call is idempotent: the first invocation creates the singleton
+    and subsequent calls return the same id.
+  - On Apple Silicon the typed-cast to a non-variadic msg_t is critical;
+    invoking objc_msgSend through its raw variadic prototype mis-handles
+    register vs. stack argument placement.
+  - The returned id is NOT autoreleased in the usual sense — it lives
+    for the lifetime of the process. No release is required.
+  - Subsequent typical sequence: setActivationPolicy:NSApplicationActivationPolicyRegular (0),
+    activateIgnoringOtherApps:YES, finishLaunching, run.

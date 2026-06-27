@@ -1,0 +1,67 @@
+name: RegQueryValueExA
+platform: windows
+lib: advapi32
+description: |
+  Retrieve the type and data of a named value under an open registry
+  key (ANSI variant). The "A" suffix accepts an 8-bit code-page string
+  for the value name; for UTF-16 names use RegQueryValueExW.
+
+lowering: indirect_call
+
+seed:
+  header: windows_advapi32
+  field: RegQueryValueExA
+  access: "s->advapi32->RegQueryValueExA"
+
+# MSDN typed names mapped to portable C:
+#   HKEY    -> void *           (opaque registry key handle)
+#   LPCSTR  -> const char *     (ANSI, null-terminated)
+#   LPDWORD -> unsigned int *   (DWORD = 32-bit unsigned)
+#   LPBYTE  -> unsigned char *
+#   LSTATUS -> int              (LONG; 0 = ERROR_SUCCESS, else Win32 error)
+signature:
+  return:
+    c_type: int
+    on_failure: "nonzero Win32 error code (ERROR_SUCCESS = 0); does NOT set GetLastError"
+  params:
+    - { name: hKey,        c_type: "void *" }
+    - { name: lpValueName, c_type: "const char *" }
+    - { name: lpReserved,  c_type: "unsigned int *" }
+    - { name: lpType,      c_type: "unsigned int *" }
+    - { name: lpData,      c_type: "unsigned char *" }
+    - { name: lpcbData,    c_type: "unsigned int *" }
+
+example: |
+  unsigned char buf[260];
+  unsigned int type = 0;
+  unsigned int cb = sizeof(buf);
+  /* hKey obtained from a prior RegOpenKeyExA call. */
+  int status = s->advapi32->RegQueryValueExA(
+      hKey, "ProductName", NULL, &type, buf, &cb);
+  if (status == 0) {
+      /* buf holds `cb` bytes; for REG_SZ this includes the trailing NUL
+         IF it was stored — not guaranteed. */
+  }
+
+notes: |
+  - Return value is a Win32 error code (LSTATUS), NOT a BOOL. Zero means
+    success; do not call GetLastError. Common errors: ERROR_FILE_NOT_FOUND=2,
+    ERROR_MORE_DATA=234, ERROR_INVALID_HANDLE=6.
+  - lpValueName=NULL or "" queries the key's default (unnamed) value.
+  - lpReserved MUST be NULL. lpType may be NULL if the caller doesn't
+    care about the value's type tag (REG_SZ=1, REG_EXPAND_SZ=2,
+    REG_BINARY=3, REG_DWORD=4, REG_MULTI_SZ=7, REG_QWORD=11).
+  - lpcbData is in/out: on input the size of lpData in BYTES; on output
+    the number of bytes written (or required, when ERROR_MORE_DATA).
+    Passing lpData=NULL with a non-NULL lpcbData is the standard "size
+    probe" idiom — the function returns ERROR_SUCCESS and fills *lpcbData
+    with the required buffer size.
+  - For REG_SZ / REG_EXPAND_SZ / REG_MULTI_SZ the stored bytes may or
+    may not include a trailing NUL — callers should allocate one extra
+    byte and zero it after the call to be safe.
+  - Win64 ABI: first four args (hKey, lpValueName, lpReserved, lpType)
+    in RCX/RDX/R8/R9; lpData and lpcbData on the stack past the 32-byte
+    shadow space. Clang handles this with --target=x86_64-pc-windows-*.
+  - hKey may also be one of the predefined roots: HKEY_CLASSES_ROOT=
+    (void*)0x80000000, HKEY_CURRENT_USER=(void*)0x80000001,
+    HKEY_LOCAL_MACHINE=(void*)0x80000002, HKEY_USERS=(void*)0x80000003.

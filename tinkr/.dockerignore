@@ -1,0 +1,7 @@
+.git
+.DS_Store
+.env
+**/*.bin
+**/*.o
+**/*.bc
+**/loader

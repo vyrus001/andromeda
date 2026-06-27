@@ -1,0 +1,46 @@
+name: VirtualFree
+platform: windows
+lib: kernel32
+description: |
+  Release, decommit, or release-and-decommit a region of pages in the
+  calling process's virtual address space. Pairs with VirtualAlloc;
+  the dwFreeType argument selects between decommit (keep reservation)
+  and release (give the address range back entirely).
+
+lowering: indirect_call
+
+seed:
+  header: windows_kernel32
+  field: VirtualFree
+  access: "s->kernel32->VirtualFree"
+
+# MSDN typed names translated to plain C:
+#   LPVOID = void *, SIZE_T = size_t, DWORD = unsigned int,
+#   BOOL = int (0 = fail, nonzero = success).
+signature:
+  return:
+    c_type: int
+    on_failure: "returns 0 (FALSE); call GetLastError() for code"
+  params:
+    - { name: lpAddress,  c_type: "void *" }
+    - { name: dwSize,     c_type: "size_t" }
+    - { name: dwFreeType, c_type: "unsigned int" }
+
+example: |
+  /* Release a region previously reserved by VirtualAlloc.
+     MEM_RELEASE = 0x8000; dwSize MUST be 0 with MEM_RELEASE. */
+  int ok = s->kernel32->VirtualFree(base, 0, 0x8000);
+
+notes: |
+  - dwFreeType values: MEM_DECOMMIT=0x4000, MEM_RELEASE=0x8000. They
+    may NOT be combined except as MEM_RELEASE|MEM_COALESCE_PLACEHOLDERS
+    (0x1) on Windows 10+ for placeholder reservations.
+  - With MEM_RELEASE, dwSize MUST be 0 and lpAddress MUST be the exact
+    base returned by VirtualAlloc. The entire reservation is freed.
+  - With MEM_DECOMMIT, lpAddress + dwSize specifies the range to
+    decommit; the address space stays reserved and can be re-committed
+    later with VirtualAlloc(MEM_COMMIT).
+  - Win64 ABI: lpAddress in RCX, dwSize in RDX, dwFreeType in R8, with
+    32-byte shadow space. Clang handles this with --target=x86_64-pc-windows-*.
+  - Do not use VirtualFree on memory allocated by HeapAlloc, malloc, or
+    LocalAlloc — those have separate free routines.

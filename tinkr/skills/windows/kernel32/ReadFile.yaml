@@ -1,0 +1,32 @@
+name: ReadFile
+platform: windows
+lib: kernel32
+description: |
+  Read data from a file, pipe, or console handle. Synchronous when
+  lpOverlapped == NULL.
+
+lowering: indirect_call
+
+seed:
+  header: windows_kernel32
+  field: ReadFile
+  access: "s->kernel32->ReadFile"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "returns 0 (FALSE); call GetLastError() for code"
+  params:
+    - { name: hFile,               c_type: "void *" }
+    - { name: lpBuffer,            c_type: "void *" }
+    - { name: nNumberOfBytesToRead, c_type: "unsigned int" }
+    - { name: lpNumberOfBytesRead,  c_type: "unsigned int *" }
+    - { name: lpOverlapped,        c_type: "void *" }
+
+example: |
+  unsigned int got = 0;
+  int ok = s->kernel32->ReadFile(hFile, buf, sizeof buf, &got, NULL);
+
+notes: |
+  - On EOF from a regular file, returns TRUE with *lpNumberOfBytesRead = 0.
+  - On a broken pipe, returns FALSE with GetLastError() = ERROR_BROKEN_PIPE.

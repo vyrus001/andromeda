@@ -1,0 +1,49 @@
+name: CreateFileW
+platform: windows
+lib: kernel32
+description: |
+  Create or open a file, pipe, console, etc. The "W" suffix takes a
+  UTF-16 wide path; for ASCII paths use CreateFileA (a separate skill).
+
+lowering: indirect_call
+
+seed:
+  header: windows_kernel32
+  field: CreateFileW
+  access: "s->kernel32->CreateFileW"
+
+# MSDN named types translated to plain C:
+#   HANDLE              -> void *
+#   LPCWSTR             -> const unsigned short *   (UTF-16, 2 bytes/char)
+#   DWORD               -> unsigned int
+#   LPSECURITY_ATTRIBUTES -> void * (opaque struct, NULL for default)
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "INVALID_HANDLE_VALUE ((void *)-1); GetLastError() for code"
+  params:
+    - { name: lpFileName,            c_type: "const unsigned short *" }
+    - { name: dwDesiredAccess,       c_type: "unsigned int" }
+    - { name: dwShareMode,           c_type: "unsigned int" }
+    - { name: lpSecurityAttributes,  c_type: "void *" }
+    - { name: dwCreationDisposition, c_type: "unsigned int" }
+    - { name: dwFlagsAndAttributes,  c_type: "unsigned int" }
+    - { name: hTemplateFile,         c_type: "void *" }
+
+example: |
+  /* "test.txt" as UTF-16; C11 u"..." literals are UTF-16 strings,
+     but the agent can also emit a static array of char codes. */
+  static const unsigned short path[] = { 't','e','s','t','.','t','x','t', 0 };
+  /* GENERIC_READ = 0x80000000, FILE_SHARE_READ = 1, OPEN_EXISTING = 3,
+     FILE_ATTRIBUTE_NORMAL = 0x80 */
+  void *h = s->kernel32->CreateFileW(path, 0x80000000, 1, NULL, 3, 0x80, NULL);
+
+notes: |
+  - Common dwDesiredAccess: GENERIC_READ=0x80000000, GENERIC_WRITE=0x40000000,
+    GENERIC_EXECUTE=0x20000000.
+  - dwCreationDisposition: CREATE_NEW=1, CREATE_ALWAYS=2, OPEN_EXISTING=3,
+    OPEN_ALWAYS=4, TRUNCATE_EXISTING=5.
+  - lpFileName MUST be a UTF-16 string (each char a 2-byte unsigned short),
+    null-terminated. Build via a `static const unsigned short path[] = ...`
+    inside the entry function (SheLLVM's global2stack will inline it).
+  - On error, returns INVALID_HANDLE_VALUE (cast (void*)-1), NOT NULL.

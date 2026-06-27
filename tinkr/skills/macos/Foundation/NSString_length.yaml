@@ -1,0 +1,49 @@
+name: length
+platform: macos
+lib: Foundation
+class: NSString
+description: |
+  Return the number of UTF-16 code units in an NSString. Equivalent to:
+  [str length]. Note that this counts UTF-16 code units, not Unicode
+  characters — surrogate pairs count as 2, and combining sequences
+  count as their constituent code units.
+
+lowering: objc_msgsend
+
+requires:
+  - macos/libobjc/objc_getClass
+  - macos/libobjc/sel_registerName
+  - macos/libobjc/objc_msgSend
+
+class_name: NSString
+selector: "length"
+receiver_kind: instance
+
+signature:
+  return:
+    c_type: "unsigned long"      # NSUInteger
+    on_failure: "no failure mode; nil receiver returns 0"
+  params:
+    - { name: str, c_type: "void *" }   # NSString * (id)
+
+helper: |
+  static unsigned long NSString_length(struct macos_libobjc *o,
+                                       void *str) {
+      void *sel = o->sel_registerName("length");
+      typedef unsigned long (*msg_t)(void *, void *);
+      return ((msg_t)o->objc_msgSend)(str, sel);
+  }
+
+example: |
+  unsigned long n = NSString_length(s->libobjc, str);
+
+notes: |
+  - NSUInteger is `unsigned long` on 64-bit macOS (both arm64 and x86_64).
+  - The result is the count of UTF-16 code units (`unichar`), not the
+    number of Unicode scalar values nor the UTF-8 byte length. For UTF-8
+    byte length use lengthOfBytesUsingEncoding: with NSUTF8StringEncoding.
+  - This is an instance method, so the receiver is the NSString itself
+    (not the NSString class). Passing nil returns 0 silently per the
+    standard objc_msgSend nil-receiver behavior.
+  - The typed cast around objc_msgSend is required on arm64 to avoid
+    the variadic ABI path — see macos/libobjc/objc_msgSend notes.

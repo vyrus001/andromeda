@@ -1,0 +1,96 @@
+name: mprotect
+platform: linux
+lib: syscall
+description: |
+  Change protection on a range of pages in the calling process's virtual
+  address space via the Linux mprotect(2) syscall, bypassing libc. The
+  range [addr, addr+len) must be page-aligned (addr must be a multiple
+  of the system page size). Typical uses include flipping a freshly
+  mmap'd RW page to RX after writing instructions into it.
+
+lowering: syscall
+
+signature:
+  return:
+    c_type: long
+    on_failure: "negative -errno on error"
+  params:
+    - { name: addr, c_type: "void *" }
+    - { name: len,  c_type: "unsigned long" }
+    - { name: prot, c_type: int }
+
+arch:
+  arm64:
+    syscall_number: 226
+    helper: |
+      static long sys_mprotect(void *addr, unsigned long len, int prot) {
+          register long x0 __asm__("x0") = (long)addr;
+          register long x1 __asm__("x1") = (long)len;
+          register long x2 __asm__("x2") = (long)prot;
+          register long x8 __asm__("x8") = 226;
+          __asm__ volatile ("svc #0"
+                            : "+r"(x0)
+                            : "r"(x1), "r"(x2), "r"(x8)
+                            : "memory");
+          return x0;
+      }
+  x86_64:
+    syscall_number: 10
+    helper: |
+      static long sys_mprotect(void *addr, unsigned long len, int prot) {
+          long ret;
+          __asm__ volatile ("syscall"
+                            : "=a"(ret)
+                            : "0"((long)10),
+                              "D"(addr), "S"(len), "d"((long)prot)
+                            : "rcx", "r11", "memory");
+          return ret;
+      }
+  arm:
+    syscall_number: 125
+    helper: |
+      static long sys_mprotect(void *addr, unsigned long len, int prot) {
+          register long r0 __asm__("r0") = (long)addr;
+          register long r1 __asm__("r1") = (long)len;
+          register long r2 __asm__("r2") = (long)prot;
+          register long r7 __asm__("r7") = 125;
+          __asm__ volatile ("svc #0"
+                            : "+r"(r0)
+                            : "r"(r1), "r"(r2), "r"(r7)
+                            : "memory");
+          return r0;
+      }
+  i386:
+    syscall_number: 125
+    helper: |
+      static long sys_mprotect(void *addr, unsigned long len, int prot) {
+          long ret;
+          __asm__ volatile ("int $0x80"
+                            : "=a"(ret)
+                            : "0"((long)125),
+                              "b"(addr), "c"(len), "d"((long)prot)
+                            : "memory");
+          return ret;
+      }
+
+example: |
+  /* Flip a 4 KiB page from RW to RX after writing code into it. */
+  long rc = sys_mprotect(page, 4096, /* PROT_READ|PROT_EXEC */ 5);
+  if (rc < 0) { /* errno = -rc */ }
+
+notes: |
+  - PROT_* values on Linux: PROT_NONE=0, PROT_READ=1, PROT_WRITE=2,
+    PROT_EXEC=4. Combine with bitwise OR.
+  - `addr` MUST be page-aligned; otherwise the syscall returns -EINVAL.
+    Page size is typically 4096 on x86_64/arm/i386 and 4096 or 16384 on
+    arm64 (Apple/embedded kernels vary; query via getauxval(AT_PAGESZ)
+    or sysconf(_SC_PAGESIZE) if you cannot assume).
+  - `len` is rounded up internally to a multiple of the page size, but
+    the range [addr, addr+len) must lie entirely within previously
+    mapped regions (mmap, brk, or the loader's segments).
+  - No errno: error returns are negative integers whose absolute value
+    is the errno code (e.g., -EACCES == -13, -ENOMEM == -12).
+  - W^X kernels (SELinux, PaX/grsec, recent Android) may reject
+    PROT_WRITE|PROT_EXEC; perform the RW->RX flip in two steps if
+    needed, or allocate with MAP_JIT-equivalent flags where supported.
+  - Successful return is 0; nonzero negative is the only failure form.

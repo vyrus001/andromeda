@@ -1,0 +1,67 @@
+name: removeItemAtPath_error
+platform: macos
+lib: Foundation
+class: NSFileManager
+description: |
+  Delete the file or directory at the given filesystem path. Equivalent to
+  [fileManager removeItemAtPath:path error:&err]. Recursively removes the
+  contents of directories. Returns YES (nonzero) on success, NO (0) on
+  failure; on failure, if `error` is non-NULL, *error is set to an
+  autoreleased NSError describing the problem.
+
+lowering: objc_msgsend
+
+requires:
+  - macos/libobjc/objc_getClass
+  - macos/libobjc/sel_registerName
+  - macos/libobjc/objc_msgSend
+
+class_name: NSFileManager
+selector: "removeItemAtPath:error:"
+receiver_kind: instance
+
+signature:
+  return:
+    c_type: int                # BOOL: nonzero = success, 0 = failure
+    on_failure: "returns 0 (NO); *error (if non-NULL) is an NSError *"
+  params:
+    - { name: fileManager, c_type: "void *" }     # NSFileManager *
+    - { name: path,        c_type: "void *" }     # NSString *
+    - { name: error,       c_type: "void **" }    # NSError ** (may be NULL)
+
+helper: |
+  static int NSFileManager_removeItemAtPath_error(struct macos_libobjc *o,
+                                                  void *fileManager,
+                                                  void *path,
+                                                  void **error) {
+      void *sel = o->sel_registerName("removeItemAtPath:error:");
+      typedef signed char (*msg_t)(void *, void *, void *, void **);
+      return (int)((msg_t)o->objc_msgSend)(fileManager, sel, path, error);
+  }
+
+example: |
+  /* Obtain the shared NSFileManager instance via [NSFileManager defaultManager],
+     then build an NSString path, then call this helper. */
+  void *path = NSString_stringWithUTF8String(s->libobjc, "/tmp/junk");
+  int ok = NSFileManager_removeItemAtPath_error(s->libobjc, fm, path, NULL);
+  if (!ok) { /* deletion failed */ }
+
+notes: |
+  - Objective-C BOOL is `signed char` on Apple platforms (not `int`). The
+    helper invokes objc_msgSend through a function-pointer cast that
+    returns `signed char` and widens to `int` for the caller — this is
+    critical on arm64, where a wider return-type cast would read
+    uninitialised high bits of x0.
+  - Receiver is an NSFileManager instance — typically [NSFileManager
+    defaultManager] (a separate class-method skill). Do not pass the
+    Class object; that would dispatch +removeItemAtPath:error: which
+    does not exist.
+  - `path` is an NSString *, not a C string. Build one via
+    NSString_stringWithUTF8String or +stringWithFileSystemRepresentation:.
+  - Pass NULL for `error` to discard error details. If non-NULL, on
+    failure *error is set to an autoreleased NSError *; you do not own
+    it and must not release it.
+  - Recursively removes directory contents. Fails atomically only for a
+    single file; partial deletion of a directory tree is possible on error.
+  - Does NOT follow symlinks at the final path component — removes the
+    symlink itself, not its target.

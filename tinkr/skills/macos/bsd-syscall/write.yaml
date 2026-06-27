@@ -1,0 +1,69 @@
+name: write
+platform: macos
+lib: bsd-syscall
+description: |
+  Write up to `count` bytes from `buf` to file descriptor `fd` via the
+  BSD-class syscall directly, bypassing libSystem.
+
+lowering: syscall
+
+signature:
+  return:
+    c_type: long
+    on_failure: "negative -errno on error (carry-flag converted by helper)"
+  params:
+    - { name: fd,    c_type: int }
+    - { name: buf,   c_type: "const void *" }
+    - { name: count, c_type: "unsigned long" }
+
+arch:
+  arm64:
+    syscall_number: 4    # SYS_write
+    helper: |
+      static long sys_write(int fd, const void *buf, unsigned long n) {
+          register long x0  __asm__("x0")  = (long)fd;
+          register long x1  __asm__("x1")  = (long)buf;
+          register long x2  __asm__("x2")  = (long)n;
+          register long x16 __asm__("x16") = 4;   /* SYS_write */
+          __asm__ volatile (
+              "svc #0x80\n\t"
+              "b.cc 1f\n\t"
+              "neg x0, x0\n"   /* on error: x0 = errno -> -errno */
+              "1:"
+              : "+r"(x0)
+              : "r"(x1), "r"(x2), "r"(x16)
+              : "cc", "memory"
+          );
+          return x0;
+      }
+  x86_64:
+    syscall_number: 4    # SYS_write; macOS encodes BSD class in upper bits.
+    helper: |
+      static long sys_write(int fd, const void *buf, unsigned long n) {
+          long ret;
+          __asm__ volatile (
+              "syscall\n\t"
+              "jnc 1f\n\t"
+              "negq %%rax\n"   /* on error: rax = errno -> -errno */
+              "1:"
+              : "=a"(ret)
+              : "0"((long)0x2000004),   /* (BSD class << 24) | SYS_write */
+                "D"((long)fd), "S"(buf), "d"(n)
+              : "rcx", "r11", "cc", "memory"
+          );
+          return ret;
+      }
+
+example: |
+  long n = sys_write(1, msg, msg_len);
+  if (n < 0) { /* errno = -n */ }
+
+notes: |
+  - macOS syscalls indicate failure via the carry flag, not via the
+    sign of the return value (unlike Linux). The helper normalises
+    to the Linux-style "negative = -errno" convention.
+  - On x86_64 macOS the syscall number embeds the BSD class in the
+    upper byte: SYS_write = 4, encoded as 0x2000004.
+  - Apple discourages direct syscalls; numbers occasionally change
+    across macOS versions. Prefer macos/libSystem/write (indirect_call)
+    for long-lived tooling.

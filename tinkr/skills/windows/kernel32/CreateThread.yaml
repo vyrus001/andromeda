@@ -1,0 +1,63 @@
+name: CreateThread
+platform: windows
+lib: kernel32
+description: |
+  Create a new thread within the calling process. The thread begins
+  execution at the function pointed to by lpStartAddress, receiving
+  lpParameter as its single argument.
+
+lowering: indirect_call
+
+seed:
+  header: windows_kernel32
+  field: CreateThread
+  access: "s->kernel32->CreateThread"
+
+# MSDN typed names translated to plain C:
+#   HANDLE                  -> void *
+#   LPSECURITY_ATTRIBUTES   -> void *   (opaque; NULL for default)
+#   SIZE_T                  -> size_t
+#   LPTHREAD_START_ROUTINE  -> void *   (DWORD WINAPI fn(LPVOID))
+#   LPVOID                  -> void *
+#   DWORD                   -> unsigned int
+#   LPDWORD                 -> unsigned int *
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "NULL; call GetLastError() for code"
+  params:
+    - { name: lpThreadAttributes, c_type: "void *" }
+    - { name: dwStackSize,        c_type: "size_t" }
+    - { name: lpStartAddress,     c_type: "void *" }
+    - { name: lpParameter,        c_type: "void *" }
+    - { name: dwCreationFlags,    c_type: "unsigned int" }
+    - { name: lpThreadId,         c_type: "unsigned int *" }
+
+example: |
+  /* Start routine: DWORD WINAPI thread_proc(LPVOID arg) */
+  static unsigned int thread_proc(void *arg) {
+      (void)arg;
+      return 0;
+  }
+
+  unsigned int tid = 0;
+  void *h = s->kernel32->CreateThread(NULL, 0, (void *)thread_proc,
+                                      NULL, 0, &tid);
+  if (h == NULL) { /* GetLastError() */ }
+
+notes: |
+  - Win64 ABI: first four args in RCX, RDX, R8, R9; remaining args on
+    stack after a 32-byte shadow space. Clang handles this when
+    --target=x86_64-pc-windows-*.
+  - lpStartAddress must follow the WINAPI (stdcall on x86, default on
+    x64) signature `DWORD fn(LPVOID)`. The seed exposes it as `void *`
+    so the caller casts at the call site.
+  - dwStackSize = 0 uses the executable's default stack reserve (1 MiB
+    typical). The value is rounded up to the system allocation granularity.
+  - dwCreationFlags: 0 = run immediately; CREATE_SUSPENDED=0x4 starts
+    the thread suspended (resume with ResumeThread); STACK_SIZE_PARAM_IS_A_RESERVATION=0x10000.
+  - lpThreadId may be NULL on Vista+ if the caller doesn't need the TID.
+  - Returned HANDLE must be closed with CloseHandle when no longer
+    needed; closing the handle does NOT terminate the thread.
+  - For threads that call CRT functions prefer _beginthreadex; for pure
+    Win32 / blob code CreateThread is fine.

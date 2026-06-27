@@ -1,0 +1,37 @@
+name: time
+platform: linux
+lib: libc
+description: |
+  Return the current calendar time as seconds since the Unix epoch
+  (1970-01-01 00:00:00 UTC). If `tloc` is non-NULL, the same value is
+  also written through that pointer.
+
+lowering: indirect_call
+
+seed:
+  header: linux_libc
+  field: time
+  access: "s->libc->time"
+
+signature:
+  return:
+    c_type: long long
+    on_failure: "returns (time_t)-1, errno set"
+  params:
+    - { name: tloc, c_type: "long long *" }
+
+example: |
+  long long now = s->libc->time(NULL);
+  if (now == -1) { /* errno set */ }
+
+notes: |
+  - POSIX `time_t` is typed as `long long` here for portability across
+    32-bit and 64-bit Linux. On glibc x86_64/arm64 `time_t` is a signed
+    64-bit integer, so this matches. On 32-bit i386 with legacy glibc
+    `time_t` may be 32-bit; pass a 32-bit-sized buffer if `tloc` is set
+    on such targets.
+  - `tloc` is optional. Pass NULL to ignore the out-parameter; the
+    return value is identical.
+  - Resolution is one second. For sub-second time use clock_gettime.
+  - The Y2038 problem affects 32-bit `time_t`; modern glibc on 64-bit
+    Linux is unaffected.

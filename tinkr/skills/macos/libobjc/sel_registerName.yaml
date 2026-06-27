@@ -1,0 +1,30 @@
+name: sel_registerName
+platform: macos
+lib: libobjc
+description: |
+  Register or look up an Objective-C selector by its method name. The
+  returned SEL (an opaque pointer) is the second arg to objc_msgSend.
+
+lowering: indirect_call
+
+seed:
+  header: macos_libobjc
+  field: sel_registerName
+  access: "s->libobjc->sel_registerName"
+
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "never fails for valid strings"
+  params:
+    - { name: name, c_type: "const char *" }
+
+example: |
+  void *sel = s->libobjc->sel_registerName("stringWithUTF8String:");
+
+notes: |
+  - Selector name includes colons for each argument:
+      no-arg:        "UTF8String"
+      one-arg:       "stringWithUTF8String:"
+      two-arg:       "initWithBytes:length:"
+  - Selectors are interned globally — same name always returns same SEL.

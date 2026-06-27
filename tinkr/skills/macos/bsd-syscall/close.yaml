@@ -1,0 +1,75 @@
+name: close
+platform: macos
+lib: bsd-syscall
+description: |
+  Close a file descriptor via the BSD-class syscall directly, bypassing
+  libSystem. After a successful call the descriptor is released and may
+  be reused by a later allocating syscall (open, socket, dup, ...).
+
+lowering: syscall
+
+signature:
+  return:
+    c_type: long
+    on_failure: "negative -errno on error (carry-flag converted by helper)"
+  params:
+    - { name: fd, c_type: int }
+
+arch:
+  arm64:
+    syscall_number: 6    # SYS_close
+    helper: |
+      static long sys_close(int fd) {
+          register long x0  __asm__("x0")  = (long)fd;
+          register long x16 __asm__("x16") = 6;   /* SYS_close */
+          __asm__ volatile (
+              "svc #0x80\n\t"
+              "b.cc 1f\n\t"
+              "neg x0, x0\n"   /* on error: x0 = errno -> -errno */
+              "1:"
+              : "+r"(x0)
+              : "r"(x16)
+              : "cc", "memory"
+          );
+          return x0;
+      }
+  x86_64:
+    syscall_number: 6    # SYS_close; macOS encodes BSD class in upper bits.
+    helper: |
+      static long sys_close(int fd) {
+          long ret;
+          __asm__ volatile (
+              "syscall\n\t"
+              "jnc 1f\n\t"
+              "negq %%rax\n"   /* on error: rax = errno -> -errno */
+              "1:"
+              : "=a"(ret)
+              : "0"((long)0x2000006),   /* (BSD class << 24) | SYS_close */
+                "D"((long)fd)
+              : "rcx", "r11", "cc", "memory"
+          );
+          return ret;
+      }
+
+example: |
+  long rc = sys_close(fd);
+  if (rc < 0) { /* errno = -rc, e.g. -EBADF == -9 */ }
+
+notes: |
+  - macOS syscalls indicate failure via the carry flag, not the sign of
+    the return value (unlike Linux). The helper normalises errors to the
+    Linux-style "negative = -errno" convention.
+  - On x86_64 macOS the syscall number embeds the BSD class in the upper
+    byte: SYS_close = 6, encoded as 0x2000006.
+  - Common errno values from close(2): EBADF (9, fd was not a valid open
+    descriptor), EINTR (4, interrupted by a signal — the fd state is
+    unspecified afterwards on macOS), EIO (5, I/O error flushing).
+  - Do NOT retry on EINTR on macOS: the descriptor may or may not have
+    been closed, and a retry could close an unrelated fd that another
+    thread just opened. Treat EINTR as "closed, with a warning."
+  - Apple discourages direct syscalls; numbers occasionally change across
+    macOS versions. Prefer macos/libSystem/close (indirect_call) for
+    long-lived tooling. SYS_close has been stable since the NeXTSTEP era,
+    so this is one of the safer numbers to bake in.
+  - No additional registers are clobbered beyond what the helper lists;
+    x16 is the syscall-number register on arm64 macOS (not x8 like Linux).

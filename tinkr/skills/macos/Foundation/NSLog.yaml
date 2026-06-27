@@ -1,0 +1,63 @@
+name: NSLog
+platform: macos
+lib: Foundation
+description: |
+  Log a formatted message to stderr (and the unified logging system on
+  modern macOS). The format argument is an NSString*, NOT a C string —
+  construct one via NSString.stringWithUTF8String first.
+
+lowering: indirect_call
+
+seed:
+  header: macos_foundation
+  field: NSLog
+  access: "s->foundation->NSLog"
+  # Variadic; the agent must cast to a typed function pointer matching
+  # the call site's argument shape before invoking.
+  type: "void *"
+
+signature:
+  return:
+    c_type: void
+  params:
+    - { name: format, c_type: "void *" }   # NSString *
+  variadic: true
+
+example: |
+  /* No-substitution form: pass the NSString to print AS the format
+     string. Zero variadic args, no format specifiers to misuse. */
+  void *msg = NSString_stringWithUTF8String(s->libobjc, "hello cocoa");
+  typedef void (*nslog0_t)(void *);
+  ((nslog0_t)s->foundation->NSLog)(msg);
+
+  /* With substitution: the function-pointer TYPE must itself be
+     variadic — declare named args followed by `...`, NOT named-args
+     only. This is critical on arm64 Apple where the variadic ABI
+     passes variadic args on the stack, not in registers. */
+  void *fmt = NSString_stringWithUTF8String(s->libobjc, "name=%@ id=%d");
+  void *name = NSString_stringWithUTF8String(s->libobjc, "carl");
+  typedef void (*nslog_t)(void *, ...);              /* <-- variadic */
+  ((nslog_t)s->foundation->NSLog)(fmt, name, 42);
+
+notes: |
+  - First arg is NSString *, not const char *. Always.
+  - Variadic. Cast to a function pointer that IS ITSELF VARIADIC:
+        typedef void (*nslog_t)(void *, ...);
+    NOT this (subtly wrong on arm64):
+        typedef void (*nslog_t)(void *, void *, int);
+    On arm64 Apple, variadic args go on the stack and named args go in
+    registers. NSLog is itself variadic — if you call it through a
+    non-variadic typed pointer, you put the args in registers (per the
+    pointer's named-arg ABI) but NSLog reads them from the stack, and
+    you get garbage values (often a huge or negative number for ints,
+    or 0xfeedface-style addresses for pointers).
+  - Format specifiers, in order of likelihood:
+      %@   NSObject * (calls -description; the right choice for NSString)
+      %s   const char * (a raw C string, NOT an NSString — using %s
+                          with an NSString prints garbage)
+      %lu  unsigned long (for NSUInteger return values like -length)
+      %ld  long (for NSInteger)
+      %d %u %x  etc. — same as printf
+  - For a one-shot "print this text" pattern, build an NSString of
+    the text and pass it as the format itself with zero variadic args.
+    Avoids the cast-to-variadic dance entirely.

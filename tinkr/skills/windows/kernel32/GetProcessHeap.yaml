@@ -1,0 +1,42 @@
+name: GetProcessHeap
+platform: windows
+lib: kernel32
+description: |
+  Retrieve a handle to the default heap of the calling process. This
+  handle is the one used implicitly by malloc/free in the C runtime
+  and is the typical first argument to HeapAlloc/HeapFree when you
+  don't want to manage a private heap.
+
+lowering: indirect_call
+
+seed:
+  header: windows_kernel32
+  field: GetProcessHeap
+  access: "s->kernel32->GetProcessHeap"
+
+# MSDN typed names:
+#   HANDLE = void *
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "NULL on failure; GetLastError() for code"
+  params: []
+
+example: |
+  void *heap = s->kernel32->GetProcessHeap();
+  if (heap) {
+      void *p = s->kernel32->HeapAlloc(heap, /* HEAP_ZERO_MEMORY */ 8, 64);
+      /* ... */
+      s->kernel32->HeapFree(heap, 0, p);
+  }
+
+notes: |
+  - The returned HANDLE is owned by the process — do NOT call HeapDestroy
+    on it. Destroying the default heap corrupts the C runtime.
+  - The handle is stable for the lifetime of the process; the agent may
+    cache it in a local once obtained.
+  - Win64 ABI: zero-arg function, return in RAX. No shadow space concerns
+    for the call itself, but the caller still allocates 32 bytes of
+    shadow space per the standard prologue (clang handles this).
+  - For multi-threaded use the default heap is serialized; if you want
+    a non-serialized private heap use HeapCreate with HEAP_NO_SERIALIZE.

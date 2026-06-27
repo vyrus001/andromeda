@@ -1,0 +1,45 @@
+name: NtAllocateVirtualMemory
+platform: windows
+lib: ntdll
+description: |
+  Native API counterpart to VirtualAlloc. Allocates pages of memory in
+  the specified process's virtual address space. Lower-level than
+  VirtualAlloc; some loaders prefer ntdll because it's resolved
+  earlier in process bootstrap.
+
+lowering: indirect_call
+
+seed:
+  header: windows_ntdll
+  field: NtAllocateVirtualMemory
+  access: "s->ntdll->NtAllocateVirtualMemory"
+
+# NTSTATUS = LONG (signed 32-bit; 0 = STATUS_SUCCESS, negative or
+# top-bit-set values are failures).
+signature:
+  return:
+    c_type: int
+    on_failure: "NTSTATUS != 0 indicates failure (no GetLastError translation)"
+  params:
+    - { name: ProcessHandle,    c_type: "void *" }
+    - { name: BaseAddress,      c_type: "void **" }
+    - { name: ZeroBits,         c_type: "size_t" }
+    - { name: RegionSize,       c_type: "size_t *" }
+    - { name: AllocationType,   c_type: "unsigned int" }
+    - { name: Protect,          c_type: "unsigned int" }
+
+example: |
+  void *base = NULL;
+  size_t size = 4096;
+  /* (HANDLE)-1 == current process pseudo-handle.
+     MEM_COMMIT|MEM_RESERVE = 0x3000, PAGE_EXECUTE_READWRITE = 0x40 */
+  int status = s->ntdll->NtAllocateVirtualMemory(
+      (void *)-1, &base, 0, &size, 0x3000, 0x40);
+
+notes: |
+  - ProcessHandle (void*)-1 is the current process pseudo-handle.
+  - BaseAddress is in/out: pass NULL pointer to let kernel choose, OR a
+    desired address. On return, *BaseAddress is the actual base.
+  - RegionSize is in/out: pass desired size, get back the rounded-up
+    actual allocation.
+  - Protect values are the same PAGE_* constants as VirtualProtect.

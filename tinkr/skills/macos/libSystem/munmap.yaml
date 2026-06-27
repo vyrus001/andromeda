@@ -1,0 +1,43 @@
+name: munmap
+platform: macos
+lib: libSystem
+description: |
+  Unmap a region of memory previously established with mmap. Removes
+  the mapping for the address range [addr, addr+length); subsequent
+  references to addresses within the range generate SIGSEGV.
+
+lowering: indirect_call
+
+seed:
+  header: macos_libsystem
+  field: munmap
+  access: "s->libsystem->munmap"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1, errno set"
+  params:
+    - { name: addr,   c_type: "void *" }
+    - { name: length, c_type: size_t }
+
+example: |
+  void *page = s->libsystem->mmap(NULL, 4096,
+      /* PROT_READ|PROT_WRITE */ 3,
+      /* MAP_ANON|MAP_PRIVATE */ 0x1002, -1, 0);
+  /* ... use page ... */
+  int rc = s->libsystem->munmap(page, 4096);
+
+notes: |
+  - `addr` must be page-aligned (multiple of the system page size, which
+    is 16384 on Apple Silicon and 4096 on x86_64). `length` is rounded
+    up to a whole number of pages.
+  - It is legal to munmap a range that spans multiple prior mmap calls,
+    or a sub-range of a single mapping; the kernel splits as needed.
+  - Unmapping an address range that contains no mappings is NOT an
+    error on macOS — munmap silently succeeds for unmapped holes.
+  - Errors: EINVAL if `addr` is not page-aligned, if `length` is 0, or
+    if the range wraps the address space.
+  - Does not affect file contents for file-backed mappings; pending
+    dirty pages are written back per the mapping's flags (use msync
+    first if you need a synchronous flush).

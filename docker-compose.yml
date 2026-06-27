@@ -1,0 +1,34 @@
+services:
+  soldir:
+    build:
+      context: ./soldir
+      dockerfile: Dockerfile
+      additional_contexts:
+        tinkr: ./tinkr
+        tailor: ./tailor
+    image: andromeda-soldir:dev
+    ports:
+      - "8765:8765"
+    environment:
+      TINKR_ROOT: /tinkr
+      TAILOR_ROOT: /tailor
+      SOLDIR_HOST: 0.0.0.0
+      SOLDIR_PORT: "8765"
+      SOLDIR_TEST_MODE: ${SOLDIR_TEST_MODE:-}
+
+      XAI_API_KEY: ${XAI_API_KEY:-}
+      XAI_BASE_URL: ${XAI_BASE_URL:-}
+      XAI_MODEL: ${XAI_MODEL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-}
+    volumes:
+      - soldir-data:/soldir/data
+
+volumes:
+  soldir-data:

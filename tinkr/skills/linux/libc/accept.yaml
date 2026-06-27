@@ -1,0 +1,52 @@
+name: accept
+platform: linux
+lib: libc
+description: |
+  Accept a connection on a listening socket. Extracts the first pending
+  connection request from the queue, creates a new connected socket, and
+  returns a new file descriptor referring to that socket. The original
+  listening socket is unaffected.
+
+lowering: indirect_call
+
+seed:
+  header: linux_libc
+  field: accept
+  access: "s->libc->accept"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1, errno set"
+  params:
+    - { name: sockfd,  c_type: int }
+    - { name: addr,    c_type: "void *" }
+    - { name: addrlen, c_type: "unsigned int *" }
+
+example: |
+  /* Accept a connection; discard peer address. */
+  int cfd = s->libc->accept(listen_fd, NULL, NULL);
+  if (cfd < 0) { /* errno set */ }
+
+  /* Or capture the peer's address. */
+  char buf[128];                       /* sockaddr_storage-sized */
+  unsigned int len = sizeof(buf);
+  int cfd2 = s->libc->accept(listen_fd, buf, &len);
+
+notes: |
+  - POSIX types: addr is `struct sockaddr *`, addrlen is `socklen_t *`
+    (typedef'd to `unsigned int` on Linux). The skill uses `void *` and
+    `unsigned int *` to avoid pulling in <sys/socket.h>.
+  - `addrlen` is value-result: on entry it holds the size of the buffer
+    at `addr`; on return it holds the actual size of the peer address
+    (which may exceed the buffer — in that case the address is truncated).
+  - Pass NULL for both `addr` and `addrlen` if you don't care about the
+    peer's address.
+  - The listening socket must have been bound (bind) and marked passive
+    (listen) before accept is called.
+  - Blocks by default; if the listening socket is O_NONBLOCK, accept
+    returns -1 with errno=EAGAIN/EWOULDBLOCK when no connection is ready.
+  - Returns a new fd that inherits some properties from the listener but
+    NOT O_NONBLOCK or FD_CLOEXEC — use accept4 to set those atomically.
+  - The new fd has its own send/receive buffers; close it independently
+    of the listening socket.

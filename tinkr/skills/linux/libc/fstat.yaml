@@ -1,0 +1,47 @@
+name: fstat
+platform: linux
+lib: libc
+description: |
+  Retrieve file metadata for an open file descriptor. Fills a `struct stat`
+  with size, mode, owner, timestamps, and device/inode identifiers.
+
+lowering: indirect_call
+
+seed:
+  header: linux_libc
+  field: fstat
+  access: "s->libc->fstat"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1, errno set"
+  params:
+    - { name: fd,  c_type: int }
+    - { name: buf, c_type: "void *" }
+
+example: |
+  /* The blob should declare its own `struct stat` layout matching the
+     target libc/kernel ABI, or treat `buf` as an opaque byte buffer
+     large enough (e.g. 144 bytes on glibc x86_64; 128 on arm64). */
+  unsigned char st[160];
+  int rc = s->libc->fstat(fd, st);
+  if (rc < 0) { /* errno set */ }
+
+notes: |
+  - The POSIX prototype is `int fstat(int fd, struct stat *buf)`. The
+    seed exposes `buf` as `void *` because `struct stat`'s layout is
+    libc/arch dependent and we don't pull <sys/stat.h> into seeds.h.
+  - glibc on x86_64 lays out `struct stat` as 144 bytes; on arm64 it is
+    128 bytes; on i386 the legacy layout is 88 bytes (and glibc may
+    redirect to `fstat64`). Size the buffer generously or use a
+    compile-time-known layout.
+  - Many libcs implement `fstat` as a versioned symbol (`__fxstat`,
+    `__fxstat64`) on older glibc. The seed entry must point at the
+    public ABI symbol resolved via dlsym("fstat") so the right shim is
+    used; otherwise prefer the `fstatat`/`statx` syscall variants.
+  - On Linux there is no `fstat` syscall on arm64 — libc translates to
+    `fstatat(fd, "", buf, AT_EMPTY_PATH)` or `statx`. The seed hides
+    this; calling sites just see the libc entry point.
+  - Common `st_mode` masks (after extracting from the buffer): S_IFMT
+    =0170000, S_IFREG=0100000, S_IFDIR=040000, S_IFLNK=0120000.

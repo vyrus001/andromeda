@@ -1,0 +1,28 @@
+name: CloseHandle
+platform: windows
+lib: kernel32
+description: |
+  Close an open object handle (file, pipe, mutex, event, process,
+  thread, etc.). Decrements the kernel object's refcount.
+
+lowering: indirect_call
+
+seed:
+  header: windows_kernel32
+  field: CloseHandle
+  access: "s->kernel32->CloseHandle"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "returns 0 (FALSE); GetLastError() for code"
+  params:
+    - { name: hObject, c_type: "void *" }
+
+example: |
+  s->kernel32->CloseHandle(hFile);
+
+notes: |
+  - Closing INVALID_HANDLE_VALUE ((void*)-1) returns FALSE.
+  - Closing a pseudo-handle (GetCurrentProcess/GetCurrentThread, value
+    (void*)-1 or (void*)-2) is a no-op that returns TRUE.

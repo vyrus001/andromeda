@@ -1,0 +1,28 @@
+name: ExitProcess
+platform: windows
+lib: kernel32
+description: |
+  Terminate the calling process and all its threads with the given exit
+  code. Runs DLL detach notifications; doesn't return.
+
+lowering: indirect_call
+
+seed:
+  header: windows_kernel32
+  field: ExitProcess
+  access: "s->kernel32->ExitProcess"
+
+signature:
+  return:
+    c_type: void
+    on_failure: "never returns"
+  params:
+    - { name: uExitCode, c_type: "unsigned int" }
+
+example: |
+  s->kernel32->ExitProcess(0);
+
+notes: |
+  - `__declspec(noreturn)` in MSDN, but seeds carry a plain function pointer.
+  - For a "leaf" exit that skips DLL detach and most cleanup, use
+    NtTerminateProcess(GetCurrentProcess(), code) via ntdll.

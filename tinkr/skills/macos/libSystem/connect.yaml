@@ -1,0 +1,61 @@
+name: connect
+platform: macos
+lib: libSystem
+description: |
+  Initiate a connection on a socket. For SOCK_STREAM sockets this
+  performs the TCP handshake to the peer described by `addr`; for
+  SOCK_DGRAM sockets it sets the default destination for subsequent
+  send(2) calls and filters incoming datagrams to that peer.
+
+lowering: indirect_call
+
+seed:
+  header: macos_libsystem
+  field: connect
+  access: "s->libsystem->connect"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1, errno set"
+  params:
+    - { name: sockfd,  c_type: int }
+    - { name: addr,    c_type: "const void *" }
+    - { name: addrlen, c_type: "unsigned int" }
+
+example: |
+  /* Connect to 127.0.0.1:8080 over IPv4. struct sockaddr_in laid out
+     manually so we don't pull in <netinet/in.h>:
+       u8  sin_len         (BSD-only, =16)
+       u8  sin_family      (AF_INET = 2)
+       u16 sin_port        (network byte order)
+       u32 sin_addr        (network byte order)
+       u8  sin_zero[8]
+  */
+  unsigned char sa[16] = {
+      16, 2,              /* sin_len, AF_INET */
+      0x1f, 0x90,         /* port 8080, big-endian */
+      127, 0, 0, 1,       /* 127.0.0.1 */
+      0, 0, 0, 0, 0, 0, 0, 0
+  };
+  int rc = s->libsystem->connect(fd, sa, 16);
+  if (rc < 0) { /* errno set */ }
+
+notes: |
+  - POSIX typed signature: `int connect(int, const struct sockaddr *, socklen_t)`.
+    `socklen_t` is `uint32_t` on macOS, hence `unsigned int` here.
+  - macOS `struct sockaddr_in` (and all BSD sockaddrs) has a leading
+    `sin_len` byte before `sin_family` — this differs from Linux,
+    where `sin_family` is the first field (2 bytes). Set sin_len = 16
+    for sockaddr_in, 28 for sockaddr_in6.
+  - `addr` and port fields are in network byte order (big-endian). The
+    agent should bake the bytes directly; no need to call htons/htonl.
+  - Common errno values: ECONNREFUSED=61, ETIMEDOUT=60, EHOSTUNREACH=65,
+    ENETUNREACH=51, EINPROGRESS=36 (non-blocking sockets), EINTR=4.
+  - On a non-blocking socket (O_NONBLOCK set on fd), connect returns -1
+    with errno=EINPROGRESS; poll/select/kqueue for write-readiness, then
+    use getsockopt(SOL_SOCKET, SO_ERROR) to retrieve the result.
+  - AF_INET=2, AF_INET6=30, AF_UNIX=1 on macOS. Note AF_INET6 differs
+    from Linux (where it's 10).
+  - For AF_UNIX, use `struct sockaddr_un` (sun_len, sun_family=1,
+    sun_path[104]); total addrlen is offsetof(sun_path) + strlen(path) + 1.

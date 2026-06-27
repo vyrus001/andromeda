@@ -1,0 +1,45 @@
+name: RegCloseKey
+platform: windows
+lib: advapi32
+description: |
+  Close a handle to an open registry key previously obtained from
+  RegOpenKeyExW, RegCreateKeyExW, or similar. After this call the
+  HKEY value is no longer valid and must not be reused.
+
+lowering: indirect_call
+
+seed:
+  header: windows_advapi32
+  field: RegCloseKey
+  access: "s->advapi32->RegCloseKey"
+
+# MSDN typed names translated to plain C:
+#   HKEY  -> void *   (opaque registry key handle)
+#   LSTATUS -> LONG   -> int   (0 == ERROR_SUCCESS, nonzero == Win32 error code)
+signature:
+  return:
+    c_type: int
+    on_failure: "nonzero Win32 error code; 0 (ERROR_SUCCESS) on success"
+  params:
+    - { name: hKey, c_type: "void *" }
+
+example: |
+  /* hKey was obtained earlier from RegOpenKeyExW or RegCreateKeyExW. */
+  int rc = s->advapi32->RegCloseKey(hKey);
+  if (rc != 0) { /* rc is a Win32 error code; no GetLastError needed */ }
+
+notes: |
+  - Return type on MSDN is LSTATUS (a LONG); 0 == ERROR_SUCCESS. Unlike
+    most kernel32 APIs, the error code is returned directly — do NOT
+    call GetLastError() to interpret it.
+  - The predefined keys (HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER, etc.)
+    do not strictly need to be closed, but calling RegCloseKey on them
+    is harmless and returns ERROR_SUCCESS.
+  - Closing a key does not necessarily flush pending writes to disk;
+    use RegFlushKey explicitly if durability is required (it is
+    expensive — avoid unless needed).
+  - Win64 ABI: the single HKEY arg passes in RCX with 32 bytes of
+    shadow space reserved by the caller. Clang handles this when
+    --target=x86_64-pc-windows-*.
+  - Safe to call on a NULL handle? No — pass only handles returned
+    successfully from a Reg* open/create call.

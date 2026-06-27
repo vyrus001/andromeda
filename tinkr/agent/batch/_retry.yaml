@@ -1,0 +1,3 @@
+skills:
+  - { platform: linux,   lib: syscall, function: mmap }
+  - { platform: windows, lib: ntdll,   function: NtCreateFile }

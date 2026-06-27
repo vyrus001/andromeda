@@ -1,0 +1,33 @@
+name: GetStdHandle
+platform: windows
+lib: kernel32
+description: |
+  Return a handle to the requested standard device (stdin / stdout /
+  stderr).
+
+lowering: indirect_call
+
+seed:
+  header: windows_kernel32
+  field: GetStdHandle
+  access: "s->kernel32->GetStdHandle"
+
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "INVALID_HANDLE_VALUE ((void *)-1); GetLastError() for code"
+  params:
+    - { name: nStdHandle, c_type: "unsigned int" }
+
+example: |
+  /* STD_INPUT_HANDLE = -10, STD_OUTPUT_HANDLE = -11, STD_ERROR_HANDLE = -12.
+     Pass as unsigned: 0xFFFFFFF6, 0xFFFFFFF5, 0xFFFFFFF4. */
+  void *hOut = s->kernel32->GetStdHandle((unsigned int)-11);
+
+notes: |
+  - Special values to pass for nStdHandle:
+      STD_INPUT_HANDLE  = (DWORD)-10
+      STD_OUTPUT_HANDLE = (DWORD)-11
+      STD_ERROR_HANDLE  = (DWORD)-12
+  - Returns NULL if the device hasn't been associated (e.g. detached
+    GUI process); returns INVALID_HANDLE_VALUE on error.

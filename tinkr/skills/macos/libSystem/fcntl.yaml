@@ -1,0 +1,66 @@
+name: fcntl
+platform: macos
+lib: libSystem
+description: |
+  Perform a control operation on an open file descriptor. fcntl is the
+  catch-all "do something weird to this fd" syscall: duplicate it,
+  query/set status flags, set close-on-exec, advisory locking, and a
+  pile of Darwin-specific commands (F_NOCACHE, F_FULLFSYNC, F_GETPATH,
+  F_PREALLOCATE, etc.). Variadic in POSIX — the third argument depends
+  on the cmd.
+
+lowering: indirect_call
+
+seed:
+  header: macos_libsystem
+  field: fcntl
+  access: "s->libsystem->fcntl"
+  # Opaque pointer because fcntl is variadic. On arm64 the variadic
+  # ABI differs from the named-args ABI, so the caller MUST cast to a
+  # typed function pointer matching the actual third-arg shape.
+  type: "void *"
+
+# Signature here is informational. seeds.h stores the field as `void *`
+# (per seed.type above); build a typed function pointer per call site.
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1, errno set; some cmds return command-specific values"
+  params:
+    - { name: fd,  c_type: int }
+    - { name: cmd, c_type: int }
+  variadic: true
+
+example: |
+  /* Set FD_CLOEXEC on fd via F_SETFD (cmd=2, arg=int). */
+  typedef int (*fcntl_int_t)(int, int, int);
+  int rc = ((fcntl_int_t)s->libsystem->fcntl)(fd, /* F_SETFD */ 2, /* FD_CLOEXEC */ 1);
+  if (rc < 0) { /* errno set */ }
+
+  /* Get path of an open fd via F_GETPATH (cmd=50, arg=char buf[MAXPATHLEN]). */
+  typedef int (*fcntl_ptr_t)(int, int, void *);
+  char path[1024];
+  int rc2 = ((fcntl_ptr_t)s->libsystem->fcntl)(fd, /* F_GETPATH */ 50, path);
+
+notes: |
+  - Apple Silicon (arm64) ABI quirk: variadic args go on the stack,
+    while named args go in registers. Casting fcntl to a typed
+    non-variadic function pointer with the actual arg count fixes this.
+    Skipping the cast and calling the variadic form directly silently
+    passes the third arg in the wrong place.
+  - The third argument's type depends on `cmd`:
+      * no third arg:   F_GETFD (1), F_GETFL (3), F_FULLFSYNC (51),
+                        F_NOCACHE-query, F_GETOWN (5), etc.
+      * int:            F_DUPFD (0), F_DUPFD_CLOEXEC (67), F_SETFD (2),
+                        F_SETFL (4), F_SETOWN (6), F_NOCACHE-set (48)
+      * struct flock *: F_GETLK (7), F_SETLK (8), F_SETLKW (9)
+      * void * / char buf: F_GETPATH (50, buffer must be ≥ MAXPATHLEN=1024)
+      * struct fstore *: F_PREALLOCATE (42)
+  - Darwin-specific cmd values (from <sys/fcntl.h>): F_NOCACHE=48,
+    F_GETPATH=50, F_FULLFSYNC=51, F_PREALLOCATE=42, F_RDADVISE=44,
+    F_BARRIERFSYNC=85, F_DUPFD_CLOEXEC=67. These differ from Linux.
+  - FD_CLOEXEC = 1. O_NONBLOCK on macOS = 4.
+  - F_FULLFSYNC is macOS's "actually flush to platter" — stronger than
+    fsync, used by SQLite et al. Returns 0 on success, -1 on failure.
+  - Errno conventions match POSIX: EBADF for stale fd, EINVAL for bad
+    cmd/arg, EACCES/EAGAIN for lock contention.

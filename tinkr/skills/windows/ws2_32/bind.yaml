@@ -1,0 +1,61 @@
+name: bind
+platform: windows
+lib: ws2_32
+description: |
+  Associate a local address with a socket. Typically called on a server
+  socket after socket() and before listen() (for TCP) or recvfrom()
+  (for UDP). The address family in the sockaddr must match the family
+  passed to socket().
+
+lowering: indirect_call
+
+seed:
+  header: windows_ws2_32
+  field: bind
+  access: "s->ws2_32->bind"
+
+# MSDN named types translated to plain C:
+#   SOCKET            -> void *   (UINT_PTR; opaque kernel handle)
+#   const sockaddr *  -> const void *   (caller fills in family-specific struct)
+#   int               -> int
+signature:
+  return:
+    c_type: int
+    on_failure: "returns SOCKET_ERROR (-1); call WSAGetLastError() for code"
+  params:
+    - { name: s,       c_type: "void *" }
+    - { name: name,    c_type: "const void *" }
+    - { name: namelen, c_type: int }
+
+example: |
+  /* Bind a TCP socket to 0.0.0.0:8080.
+     struct sockaddr_in layout (16 bytes):
+       u16 sin_family; u16 sin_port; u32 sin_addr; u8 sin_zero[8];
+     AF_INET=2; port and addr are in network byte order. */
+  struct {
+      unsigned short sin_family;
+      unsigned short sin_port;
+      unsigned int   sin_addr;
+      unsigned char  sin_zero[8];
+  } addr = { 2, /* htons(8080) */ 0x901F, /* INADDR_ANY */ 0, {0} };
+  int rc = s->ws2_32->bind(sock, &addr, (int)sizeof(addr));
+  if (rc == -1) { /* WSAGetLastError() */ }
+
+notes: |
+  - WSAStartup() must have been called once per process before any
+    ws2_32 socket calls succeed; otherwise bind returns SOCKET_ERROR
+    with WSANOTINITIALISED (10093).
+  - SOCKET_ERROR is defined as (-1) in winsock2.h, but SOCKET itself
+    is UINT_PTR (void* here); the int return value of bind is the
+    error indicator, not the socket handle.
+  - sockaddr is a tagged union: sockaddr_in (AF_INET=2, 16 bytes),
+    sockaddr_in6 (AF_INET6=23, 28 bytes), sockaddr_un (AF_UNIX=1,
+    Windows 10 1803+). namelen must equal the concrete struct size.
+  - Port and IPv4 address fields are network byte order (big-endian).
+    Use htons/htonl or precompute the byte-swapped literal at codegen.
+    Port 8080 = 0x1F90 host order = 0x901F network order.
+  - Common errors: WSAEADDRINUSE (10048) — port already bound;
+    WSAEACCES (10013) — privileged port without admin;
+    WSAEADDRNOTAVAIL (10049) — address not local to host.
+  - Win64 ABI: rcx=s, rdx=name, r8=namelen + 32-byte shadow space.
+    Clang handles this when --target=x86_64-pc-windows-*.

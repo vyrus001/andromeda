@@ -1,0 +1,49 @@
+name: execve
+platform: macos
+lib: libSystem
+description: |
+  Replace the current process image with a new program. On success the
+  call does not return; on failure it returns -1 with errno set. The
+  argv and envp arrays are NULL-terminated arrays of C strings, and
+  the first element of argv is conventionally the program name.
+
+lowering: indirect_call
+
+seed:
+  header: macos_libsystem
+  field: execve
+  access: "s->libsystem->execve"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1, errno set; on success does not return"
+  params:
+    - { name: path, c_type: "const char *" }
+    - { name: argv, c_type: "char *const *" }
+    - { name: envp, c_type: "char *const *" }
+
+example: |
+  char *argv[] = { "/bin/ls", "-l", NULL };
+  char *envp[] = { NULL };
+  s->libsystem->execve("/bin/ls", argv, envp);
+  /* only reached on failure */
+
+notes: |
+  - `path` must be an absolute or relative path to an executable file;
+    unlike execvp/execlp, no PATH search is performed.
+  - Both argv and envp MUST be terminated with a NULL pointer entry.
+    Failing to NULL-terminate produces undefined behavior.
+  - argv[0] is the program name as visible to the new process; it does
+    not have to match `path`.
+  - On success there is no return — subsequent instructions are dead
+    code. The agent can rely on this for control-flow shaping.
+  - macOS enforces code-signing on the target binary; unsigned or
+    quarantined binaries may fail with EPERM under SIP / Gatekeeper.
+  - The new image inherits open file descriptors unless they were
+    opened with O_CLOEXEC / FD_CLOEXEC.
+  - For a hardened-runtime caller, library validation may block
+    exec'ing binaries with incompatible signing requirements.
+  - Posix-typed parameter `char *const *` is equivalent to passing a
+    `char **` whose contents are not modified by the callee; the agent
+    can declare the arrays as `char *argv[]` at the call site.

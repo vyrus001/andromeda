@@ -1,0 +1,85 @@
+name: exit
+platform: linux
+lib: syscall
+description: |
+  Terminate the calling thread immediately via direct syscall, bypassing
+  libc. Unlike _exit/exit, this raw syscall does NOT terminate the whole
+  process on multithreaded programs — it only kills the calling thread.
+  For single-threaded blobs (the common tinkr case) the effect is
+  process termination with the given status code. For "kill entire
+  process" semantics see exit_group instead.
+
+lowering: syscall
+
+signature:
+  return:
+    c_type: long
+    on_failure: "does not return"
+  params:
+    - { name: status, c_type: int }
+
+arch:
+  arm64:
+    syscall_number: 93
+    helper: |
+      static long sys_exit(int status) {
+          register long x0 __asm__("x0") = (long)status;
+          register long x8 __asm__("x8") = 93;
+          __asm__ volatile ("svc #0"
+                            :
+                            : "r"(x0), "r"(x8)
+                            : "memory");
+          __builtin_unreachable();
+      }
+  x86_64:
+    syscall_number: 60
+    helper: |
+      static long sys_exit(int status) {
+          __asm__ volatile ("syscall"
+                            :
+                            : "a"((long)60), "D"((long)status)
+                            : "rcx", "r11", "memory");
+          __builtin_unreachable();
+      }
+  arm:
+    syscall_number: 1
+    helper: |
+      static long sys_exit(int status) {
+          register long r0 __asm__("r0") = (long)status;
+          register long r7 __asm__("r7") = 1;
+          __asm__ volatile ("swi #0"
+                            :
+                            : "r"(r0), "r"(r7)
+                            : "memory");
+          __builtin_unreachable();
+      }
+  i386:
+    syscall_number: 1
+    helper: |
+      static long sys_exit(int status) {
+          __asm__ volatile ("int $0x80"
+                            :
+                            : "a"((long)1), "b"((long)status)
+                            : "memory");
+          __builtin_unreachable();
+      }
+
+example: |
+  sys_exit(0);   /* never returns */
+
+notes: |
+  - This syscall does not return; the helper is marked with
+    __builtin_unreachable() so the optimizer can drop any following
+    dead code (and so the lack of a return statement is legal).
+  - Linux's `exit` syscall (SYS_exit / __NR_exit) terminates ONLY the
+    calling thread. In a multithreaded process the remaining threads
+    keep running. For "kill the whole process" use `exit_group`
+    (__NR_exit_group = 231 on x86_64, 94 on arm64).
+  - Only the low 8 bits of `status` are returned to the parent via
+    wait(2), per POSIX. Pass 0 for success, 1..255 for failure codes.
+  - No libc atexit handlers, stdio flushing, or C++ destructors run.
+    The blob is responsible for any cleanup it cares about before
+    invoking this.
+  - Syscall numbers differ per architecture: 93 (arm64), 60 (x86_64),
+    1 (arm/EABI, also i386). The agent selects the matching `arch`
+    block based on the build target triple.

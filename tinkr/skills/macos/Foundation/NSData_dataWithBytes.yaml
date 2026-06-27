@@ -1,0 +1,58 @@
+name: dataWithBytes
+platform: macos
+lib: Foundation
+class: NSData
+description: |
+  Construct an autoreleased NSData object holding a copy of `length`
+  bytes from `bytes`. Equivalent to: [NSData dataWithBytes:bytes length:length].
+  The NSData owns its own copy of the buffer, so the source memory can
+  be freed or reused immediately after the call returns.
+
+lowering: objc_msgsend
+
+requires:
+  - macos/libobjc/objc_getClass
+  - macos/libobjc/sel_registerName
+  - macos/libobjc/objc_msgSend
+
+class_name: NSData
+selector: "dataWithBytes:length:"
+receiver_kind: class
+
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "NULL on allocation failure"
+  params:
+    - { name: bytes,  c_type: "const void *" }
+    - { name: length, c_type: "unsigned long" }
+
+helper: |
+  static void *NSData_dataWithBytes(struct macos_libobjc *o,
+                                    const void *bytes,
+                                    unsigned long length) {
+      void *cls = o->objc_getClass("NSData");
+      void *sel = o->sel_registerName("dataWithBytes:length:");
+      typedef void *(*msg_t)(void *, void *, const void *, unsigned long);
+      return ((msg_t)o->objc_msgSend)(cls, sel, bytes, length);
+  }
+
+example: |
+  const unsigned char payload[] = { 0xde, 0xad, 0xbe, 0xef };
+  void *data = NSData_dataWithBytes(s->libobjc, payload, sizeof(payload));
+
+notes: |
+  - NSUInteger is `unsigned long` on 64-bit macOS (both arm64 and x86_64).
+    On 32-bit it would be `unsigned int`, but tinkr targets 64-bit only.
+  - The returned NSData is autoreleased. For short-lived blobs the
+    process-level autorelease pool handles cleanup; for long-running
+    blobs wrap calls in an @autoreleasepool equivalent
+    (NSAutoreleasePool / objc_autoreleasePoolPush+Pop).
+  - The bytes are copied into the NSData's internal storage. If you
+    want zero-copy semantics use dataWithBytesNoCopy:length:freeWhenDone:.
+  - Apple Silicon ABI quirk: objc_msgSend MUST be invoked through a
+    typed function pointer (as the helper does). The seed field is
+    `void *` precisely so each call site can cast to the correct typed
+    signature, avoiding the variadic calling convention on arm64.
+  - `length` is the byte count, not an element count. Pass sizeof(buf)
+    or the explicit length you want copied.

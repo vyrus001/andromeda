@@ -1,0 +1,50 @@
+name: dlsym
+platform: macos
+lib: libSystem
+description: |
+  Look up the address of a symbol in a dynamic library handle obtained
+  from dlopen. Returns a pointer suitable for casting to the appropriate
+  function-pointer or data-pointer type. Useful for late-binding APIs
+  that the loader did not pre-resolve into the seed struct.
+
+lowering: indirect_call
+
+seed:
+  header: macos_libsystem
+  field: dlsym
+  access: "s->libsystem->dlsym"
+
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "NULL on lookup failure; call dlerror() for a human-readable reason"
+  params:
+    - { name: handle, c_type: "void *" }
+    - { name: symbol, c_type: "const char *" }
+
+example: |
+  /* RTLD_DEFAULT == (void *)-2 on macOS: search every loaded image. */
+  void *p = s->libsystem->dlsym((void *)-2, "getpid");
+  if (p) {
+      int (*getpid_fn)(void) = (int (*)(void))p;
+      int pid = getpid_fn();
+  }
+
+notes: |
+  - macOS pseudo-handles differ from Linux:
+      RTLD_DEFAULT       = (void *)-2   search all loaded images in load order
+      RTLD_NEXT          = (void *)-1   search images loaded after the caller
+      RTLD_SELF          = (void *)-3   start search at the caller's image
+      RTLD_MAIN_ONLY     = (void *)-5   only the main executable
+  - On macOS, symbol names passed to dlsym must NOT include the leading
+    underscore that appears in the Mach-O symbol table. Pass "getpid",
+    not "_getpid".
+  - A NULL return is ambiguous: the symbol may genuinely resolve to a
+    NULL address (rare). Disambiguate by calling dlerror() before and
+    after, and checking whether the post-call dlerror() is non-NULL.
+  - The returned pointer has no type information; the caller must cast
+    to the correct function/data pointer type matching the symbol's
+    actual signature, or the call ABI will be wrong.
+  - dlsym pulls in libSystem's dynamic loader machinery; if the blob is
+    aiming for zero-libSystem dependence, prefer pre-resolving symbols
+    in the loader and stashing them in the seed struct.

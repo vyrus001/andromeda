@@ -1,0 +1,50 @@
+name: count
+platform: macos
+lib: Foundation
+class: NSMutableArray
+description: |
+  Return the number of objects currently in the array. Equivalent to
+  [array count]. Inherited from NSArray; works identically on
+  NSMutableArray instances. Returns NSUInteger (unsigned, pointer-width).
+
+lowering: objc_msgsend
+
+requires:
+  - macos/libobjc/objc_getClass
+  - macos/libobjc/sel_registerName
+  - macos/libobjc/objc_msgSend
+
+class_name: NSMutableArray
+selector: "count"
+receiver_kind: instance
+
+signature:
+  return:
+    c_type: "unsigned long"
+    on_failure: "no failure mode; nil receiver returns 0"
+  params:
+    - { name: array, c_type: "void *" }
+
+helper: |
+  static unsigned long NSMutableArray_count(struct macos_libobjc *o,
+                                            void *array) {
+      void *sel = o->sel_registerName("count");
+      typedef unsigned long (*msg_t)(void *, void *);
+      return ((msg_t)o->objc_msgSend)(array, sel);
+  }
+
+example: |
+  unsigned long n = NSMutableArray_count(s->libobjc, arr);
+
+notes: |
+  - `count` is declared on NSArray; NSMutableArray inherits it. The same
+    helper works for any NSArray instance — the selector name is shared.
+  - NSUInteger is `unsigned long` on 64-bit Darwin (LP64), pointer-width.
+    Both arm64 and x86_64 macOS are LP64.
+  - Sending `count` to a nil receiver returns 0 (Objective-C nil-messaging
+    semantics): zero-initialised return for integer types.
+  - No arguments beyond receiver+selector, so the arm64 variadic-vs-named
+    ABI distinction for objc_msgSend doesn't bite here — but the typed
+    cast is still mandatory.
+  - For immutable NSArray instances, use the same selector via a parallel
+    skill (NSArray_count) or just reuse this helper with the array pointer.

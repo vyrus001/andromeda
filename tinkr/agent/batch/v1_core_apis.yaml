@@ -1,0 +1,146 @@
+# Batch skill generation, v1: core OS APIs.
+#
+# Sources targeted:
+#   - glibc manual (https://sourceware.org/glibc/manual/2.43/html_mono/libc.html)
+#       File I/O, memory mgmt, processes, sockets, dynamic linker, time, exit.
+#   - Apple developer docs (libSystem POSIX surface; Foundation tree deferred)
+#   - MSDN Win32 API (kernel32, ntdll, advapi32, ws2_32 — narrowed to non-GUI)
+#
+# Excluded:
+#   - kernel.org core-api: that's KERNEL-INTERNAL API, wrong scope for our
+#     user-mode PIC blobs (kmalloc / printk / vfs_read are not callable from
+#     userspace).
+#   - Apple Foundation deep tree: every framework is its own rabbit hole;
+#     add a few via skill_gen one-at-a-time when needed.
+#   - Win32 GUI / DirectX / WMI / printing: not what PIC blobs typically need.
+#
+# To run:
+#   docker compose run --rm skill-gen --batch agent/batch/v1_core_apis.yaml
+# After it finishes:
+#   docker compose run --rm --entrypoint python3 agent /work/tools/gen-seeds-h.py
+
+skills:
+  # ────────────────────────────────────────────────────────────────────
+  # linux/libc — POSIX surface from glibc
+  # ────────────────────────────────────────────────────────────────────
+  - { platform: linux, lib: libc, function: read }
+  - { platform: linux, lib: libc, function: lseek }
+  - { platform: linux, lib: libc, function: fcntl }
+  - { platform: linux, lib: libc, function: stat }
+  - { platform: linux, lib: libc, function: fstat }
+  - { platform: linux, lib: libc, function: unlink }
+  - { platform: linux, lib: libc, function: mmap }
+  - { platform: linux, lib: libc, function: munmap }
+  - { platform: linux, lib: libc, function: mprotect }
+  - { platform: linux, lib: libc, function: fork }
+  - { platform: linux, lib: libc, function: execve }
+  - { platform: linux, lib: libc, function: waitpid }
+  - { platform: linux, lib: libc, function: getpid }
+  - { platform: linux, lib: libc, function: kill }
+  - { platform: linux, lib: libc, function: socket }
+  - { platform: linux, lib: libc, function: bind }
+  - { platform: linux, lib: libc, function: listen }
+  - { platform: linux, lib: libc, function: accept }
+  - { platform: linux, lib: libc, function: connect }
+  - { platform: linux, lib: libc, function: send }
+  - { platform: linux, lib: libc, function: recv }
+  - { platform: linux, lib: libc, function: dlopen }
+  - { platform: linux, lib: libc, function: dlsym }
+  - { platform: linux, lib: libc, function: dlclose }
+  - { platform: linux, lib: libc, function: exit }
+  - { platform: linux, lib: libc, function: sleep }
+  - { platform: linux, lib: libc, function: time }
+  - { platform: linux, lib: libc, function: gettimeofday }
+
+  # ────────────────────────────────────────────────────────────────────
+  # linux/syscall — raw syscalls (in addition to existing write)
+  # ────────────────────────────────────────────────────────────────────
+  - { platform: linux, lib: syscall, function: read }
+  - { platform: linux, lib: syscall, function: openat }       # arm64 has no SYS_open
+  - { platform: linux, lib: syscall, function: close }
+  - { platform: linux, lib: syscall, function: mmap }
+  - { platform: linux, lib: syscall, function: mprotect }
+  - { platform: linux, lib: syscall, function: exit }
+
+  # ────────────────────────────────────────────────────────────────────
+  # macos/libSystem — POSIX surface
+  # ────────────────────────────────────────────────────────────────────
+  - { platform: macos, lib: libSystem, function: lseek }
+  - { platform: macos, lib: libSystem, function: fcntl }
+  - { platform: macos, lib: libSystem, function: stat }
+  - { platform: macos, lib: libSystem, function: fstat }
+  - { platform: macos, lib: libSystem, function: unlink }
+  - { platform: macos, lib: libSystem, function: munmap }
+  - { platform: macos, lib: libSystem, function: fork }
+  - { platform: macos, lib: libSystem, function: execve }
+  - { platform: macos, lib: libSystem, function: waitpid }
+  - { platform: macos, lib: libSystem, function: getpid }
+  - { platform: macos, lib: libSystem, function: socket }
+  - { platform: macos, lib: libSystem, function: connect }
+  - { platform: macos, lib: libSystem, function: send }
+  - { platform: macos, lib: libSystem, function: recv }
+  - { platform: macos, lib: libSystem, function: dlopen }
+  - { platform: macos, lib: libSystem, function: dlsym }
+  - { platform: macos, lib: libSystem, function: sleep }
+  - { platform: macos, lib: libSystem, function: time }
+  - { platform: macos, lib: libSystem, function: gettimeofday }
+
+  # ────────────────────────────────────────────────────────────────────
+  # macos/bsd-syscall — raw syscalls
+  # ────────────────────────────────────────────────────────────────────
+  - { platform: macos, lib: bsd-syscall, function: open }
+  - { platform: macos, lib: bsd-syscall, function: close }
+  - { platform: macos, lib: bsd-syscall, function: mmap }
+  - { platform: macos, lib: bsd-syscall, function: mprotect }
+  - { platform: macos, lib: bsd-syscall, function: lseek }
+
+  # ────────────────────────────────────────────────────────────────────
+  # windows/kernel32 — non-GUI surface
+  # ────────────────────────────────────────────────────────────────────
+  - { platform: windows, lib: kernel32, function: CreateProcessW }
+  - { platform: windows, lib: kernel32, function: CreateThread }
+  - { platform: windows, lib: kernel32, function: WaitForSingleObject }
+  - { platform: windows, lib: kernel32, function: Sleep }
+  - { platform: windows, lib: kernel32, function: GetCurrentProcess }
+  - { platform: windows, lib: kernel32, function: GetCurrentThread }
+  - { platform: windows, lib: kernel32, function: HeapAlloc }
+  - { platform: windows, lib: kernel32, function: HeapFree }
+  - { platform: windows, lib: kernel32, function: GetProcessHeap }
+  - { platform: windows, lib: kernel32, function: VirtualFree }
+  - { platform: windows, lib: kernel32, function: TerminateProcess }
+  - { platform: windows, lib: kernel32, function: GetTickCount64 }
+  - { platform: windows, lib: kernel32, function: SetFilePointer }
+  - { platform: windows, lib: kernel32, function: GetLastError }
+
+  # ────────────────────────────────────────────────────────────────────
+  # windows/ntdll — Native API
+  # ────────────────────────────────────────────────────────────────────
+  - { platform: windows, lib: ntdll, function: NtCreateFile }
+  - { platform: windows, lib: ntdll, function: NtReadFile }
+  - { platform: windows, lib: ntdll, function: NtWriteFile }
+  - { platform: windows, lib: ntdll, function: NtTerminateProcess }
+  - { platform: windows, lib: ntdll, function: NtWaitForSingleObject }
+
+  # ────────────────────────────────────────────────────────────────────
+  # windows/advapi32 — registry + token APIs
+  # ────────────────────────────────────────────────────────────────────
+  - { platform: windows, lib: advapi32, function: RegOpenKeyExA }
+  - { platform: windows, lib: advapi32, function: RegQueryValueExA }
+  - { platform: windows, lib: advapi32, function: RegSetValueExA }
+  - { platform: windows, lib: advapi32, function: RegCloseKey }
+  - { platform: windows, lib: advapi32, function: OpenProcessToken }
+  - { platform: windows, lib: advapi32, function: GetTokenInformation }
+
+  # ────────────────────────────────────────────────────────────────────
+  # windows/ws2_32 — Winsock 2
+  # ────────────────────────────────────────────────────────────────────
+  - { platform: windows, lib: ws2_32, function: WSAStartup }
+  - { platform: windows, lib: ws2_32, function: WSACleanup }
+  - { platform: windows, lib: ws2_32, function: socket }
+  - { platform: windows, lib: ws2_32, function: bind }
+  - { platform: windows, lib: ws2_32, function: listen }
+  - { platform: windows, lib: ws2_32, function: accept }
+  - { platform: windows, lib: ws2_32, function: connect }
+  - { platform: windows, lib: ws2_32, function: send }
+  - { platform: windows, lib: ws2_32, function: recv }
+  - { platform: windows, lib: ws2_32, function: closesocket }

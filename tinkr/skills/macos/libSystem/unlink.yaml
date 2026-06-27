@@ -1,0 +1,42 @@
+name: unlink
+platform: macos
+lib: libSystem
+description: |
+  Remove a directory entry. If the path refers to the last link to a
+  file and no process has it open, the file is deleted and its space
+  freed. If processes still have the file open, deletion is deferred
+  until the last descriptor is closed.
+
+lowering: indirect_call
+
+seed:
+  header: macos_libsystem
+  field: unlink
+  access: "s->libsystem->unlink"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1, errno set"
+  params:
+    - { name: path, c_type: "const char *" }
+
+example: |
+  int rc = s->libsystem->unlink("/tmp/scratch");
+  if (rc < 0) { /* errno set: ENOENT, EACCES, EPERM, ... */ }
+
+notes: |
+  - `path` must be a null-terminated C string in the filesystem's
+    native encoding (UTF-8 on macOS, typically).
+  - Cannot remove directories; use `rmdir` for those. On macOS, unlink
+    on a directory returns EPERM (sometimes EISDIR depending on fs).
+  - Common errno values: ENOENT (no such file), EACCES (search/write
+    permission denied on the containing directory), EPERM (sticky-bit
+    directory and caller is not owner; or path is a directory), EROFS
+    (read-only filesystem), EBUSY (path is a mountpoint).
+  - For BSD-syscall-direct equivalent, see macos/bsd-syscall/unlink
+    (SYS_unlink = 10). Prefer this libSystem skill for stability —
+    syscall numbers occasionally shift across macOS versions.
+  - The deletion is not visible to other processes holding the file
+    open; they continue to operate on the now-anonymous inode until
+    they close it.

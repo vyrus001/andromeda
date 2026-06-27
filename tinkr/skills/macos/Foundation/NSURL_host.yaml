@@ -1,0 +1,50 @@
+name: host
+platform: macos
+lib: Foundation
+class: NSURL
+description: |
+  Return the host component of an NSURL as an NSString, or nil if the
+  URL has no host component. Equivalent to: [url host].
+
+lowering: objc_msgsend
+
+requires:
+  - macos/libobjc/objc_getClass
+  - macos/libobjc/sel_registerName
+  - macos/libobjc/objc_msgSend
+
+class_name: NSURL
+selector: "host"
+receiver_kind: instance
+
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "nil (NULL) when the URL has no host component"
+  params:
+    - { name: url, c_type: "void *" }
+
+helper: |
+  static void *NSURL_host(struct macos_libobjc *o, void *url) {
+      void *sel = o->sel_registerName("host");
+      typedef void *(*msg_t)(void *, void *);
+      return ((msg_t)o->objc_msgSend)(url, sel);
+  }
+
+example: |
+  /* url is some NSURL * obtained earlier, e.g. via NSURL URLWithString:. */
+  void *host = NSURL_host(s->libobjc, url);
+  if (host) { /* host is an NSString *, autoreleased */ }
+
+notes: |
+  - Instance method: the receiver is the NSURL itself, not the class.
+    No objc_getClass call is needed here (the dep is listed for
+    completeness with other NSURL skills that may need it).
+  - The returned NSString is autoreleased; in a short-lived blob the
+    autorelease pool will clean it up. For long-running blobs, retain
+    it or extract a C string immediately via UTF8String.
+  - Returns nil (NULL) for URLs without a host (e.g., "file:///tmp/x"
+    may return nil or an empty string depending on parsing).
+  - Apple Silicon (arm64) ABI: the typed function-pointer cast is
+    mandatory — calling objc_msgSend variadically yields a different
+    register/stack layout than the named-arg form.

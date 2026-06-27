@@ -1,0 +1,60 @@
+name: accept
+platform: windows
+lib: ws2_32
+description: |
+  Accept an incoming connection on a listening socket. Returns a new
+  socket handle representing the accepted connection; the original
+  listening socket continues to accept further connections. Blocks
+  until a connection arrives unless the listening socket is in
+  non-blocking mode.
+
+lowering: indirect_call
+
+seed:
+  header: windows_ws2_32
+  field: accept
+  access: "s->ws2_32->accept"
+
+# Winsock typed names (for reference):
+#   SOCKET          -> uintptr_t (pointer-sized unsigned); we use void *
+#                      so the seed slot matches kernel32 HANDLE-style fields.
+#   struct sockaddr * -> void *  (opaque; caller casts to sockaddr_in / _in6)
+#   int *           -> int *     (addrlen is in/out)
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "INVALID_SOCKET ((void *)~0); call WSAGetLastError() for code"
+  params:
+    - { name: s,       c_type: "void *" }
+    - { name: addr,    c_type: "void *" }
+    - { name: addrlen, c_type: "int *" }
+
+example: |
+  /* Assume `listen_sock` is bound + listening. */
+  char addrbuf[128];                 /* big enough for sockaddr_in6 */
+  int addrlen = (int)sizeof(addrbuf);
+  void *client = s->ws2_32->accept(listen_sock, addrbuf, &addrlen);
+  if (client == (void *)~(uintptr_t)0) {
+      /* int err = s->ws2_32->WSAGetLastError(); */
+  }
+
+notes: |
+  - SOCKET on Windows is `UINT_PTR` (pointer-sized unsigned), NOT a small
+    int like POSIX. Treat as `void *` in the seed and at call sites.
+  - INVALID_SOCKET is `(SOCKET)(~0)` — i.e. all-ones, which is (void *)-1
+    when cast through a pointer. Check against `(void *)~(uintptr_t)0`.
+  - `addr` and `addrlen` may both be NULL if the caller doesn't care
+    about the peer address. If non-NULL, `*addrlen` must be initialised
+    to the buffer size on entry and is updated to the actual length on
+    return.
+  - WSAStartup must have been called earlier in the process (typically
+    by the loader or an explicit ws2_32/WSAStartup skill); otherwise
+    accept fails with WSANOTINITIALISED (10093).
+  - For non-blocking listening sockets, accept returns INVALID_SOCKET
+    with WSAGetLastError() == WSAEWOULDBLOCK (10035) when no connection
+    is pending.
+  - The returned socket inherits properties from the listening socket
+    (address family, type, protocol). It does NOT inherit non-blocking
+    mode set via ioctlsocket FIONBIO — that must be set on the new
+    socket separately if desired.
+  - For overlapped/async accept use AcceptEx (mswsock.dll), not this.

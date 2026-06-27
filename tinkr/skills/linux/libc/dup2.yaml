@@ -1,0 +1,31 @@
+name: dup2
+platform: linux
+lib: libc
+description: |
+  Make `newfd` refer to the same open file description as `oldfd`,
+  closing `newfd` first if it was open. Useful for redirecting
+  stdin/stdout/stderr to a different fd before running other code.
+
+lowering: indirect_call
+
+seed:
+  header: linux_libc
+  field: dup2
+  access: "s->libc->dup2"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1, errno set"
+  params:
+    - { name: oldfd, c_type: int }
+    - { name: newfd, c_type: int }
+
+example: |
+  /* Redirect stdout to fd from open(): */
+  s->libc->dup2(fd, 1);
+
+notes: |
+  - If `oldfd == newfd` and `oldfd` is valid, returns newfd without
+    closing.
+  - Successful return value is `newfd`.

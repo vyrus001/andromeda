@@ -1,0 +1,48 @@
+name: SecRandomCopyBytes
+platform: macos
+lib: Security
+description: |
+  Fill a buffer with cryptographically secure random bytes via Apple's
+  Security framework. Backed by the kernel CSPRNG; suitable for keys,
+  nonces, and other cryptographic material. Equivalent to reading from
+  /dev/urandom but without the file descriptor.
+
+lowering: indirect_call
+
+seed:
+  header: macos_security
+  field: SecRandomCopyBytes
+  access: "s->security->SecRandomCopyBytes"
+
+# Apple-typed names (informational):
+#   SecRandomRef -> void *  (opaque CF-style ref; pass NULL for default)
+#   OSStatus     -> int     (0 == errSecSuccess)
+signature:
+  return:
+    c_type: int
+    on_failure: "non-zero OSStatus (e.g. errSecAllocate=-108, errSecParam=-50)"
+  params:
+    - { name: rnd,   c_type: "void *" }
+    - { name: count, c_type: size_t }
+    - { name: bytes, c_type: "void *" }
+
+example: |
+  unsigned char key[32];
+  /* rnd = NULL means kSecRandomDefault — the global default CSPRNG. */
+  int rc = s->security->SecRandomCopyBytes(NULL, sizeof key, key);
+  if (rc != 0) { /* allocation or parameter failure */ }
+
+notes: |
+  - `kSecRandomDefault` is documented as a SecRandomRef constant but is
+    defined as NULL in <Security/SecRandom.h>; passing NULL is the
+    idiomatic and ABI-stable way to request the default generator.
+  - Return type is OSStatus (signed 32-bit). Zero == errSecSuccess;
+    common failures are errSecAllocate (-108) and errSecParam (-50).
+  - Thread-safe; may be called concurrently from multiple threads.
+  - `bytes` must point to at least `count` writable bytes. The buffer
+    is fully overwritten only on success — on failure its contents are
+    unspecified, so callers should not rely on partial fills.
+  - Lives in /System/Library/Frameworks/Security.framework/Security on
+    both x86_64 and arm64; the seed loader should dlopen that path.
+  - For non-cryptographic randomness, prefer arc4random_buf from
+    libSystem (cheaper, no framework dependency).

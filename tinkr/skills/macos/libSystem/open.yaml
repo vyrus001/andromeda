@@ -1,0 +1,29 @@
+name: open
+platform: macos
+lib: libSystem
+description: |
+  Open a file via libSystem. Returns a file descriptor on success.
+
+lowering: indirect_call
+
+seed:
+  header: macos_libsystem
+  field: open
+  access: "s->libsystem->open"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1, errno set"
+  params:
+    - { name: pathname, c_type: "const char *" }
+    - { name: flags,    c_type: int }
+    - { name: mode,     c_type: "unsigned int" }
+
+example: |
+  int fd = s->libsystem->open("/tmp/data", /* O_RDONLY */ 0, 0);
+
+notes: |
+  - macOS flag values DIFFER from Linux: O_RDONLY=0, O_WRONLY=1, O_RDWR=2,
+    O_CREAT=0x200, O_TRUNC=0x400, O_APPEND=0x8, O_NONBLOCK=0x4, O_CLOEXEC=0x1000000.
+  - `mode` is used only when O_CREAT is set in `flags`.

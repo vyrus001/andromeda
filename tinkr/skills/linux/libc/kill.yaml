@@ -1,0 +1,46 @@
+name: kill
+platform: linux
+lib: libc
+description: |
+  Send a signal to a process or process group. With sig=0, performs
+  permission/existence checks without actually delivering a signal —
+  useful for testing whether a pid is alive and reachable.
+
+lowering: indirect_call
+
+seed:
+  header: linux_libc
+  field: kill
+  access: "s->libc->kill"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1, errno set"
+  params:
+    - { name: pid, c_type: int }
+    - { name: sig, c_type: int }
+
+example: |
+  /* SIGTERM = 15, SIGKILL = 9 */
+  int rc = s->libc->kill(target_pid, 15);
+  if (rc < 0) { /* errno: ESRCH no such pid, EPERM no permission, EINVAL bad sig */ }
+
+notes: |
+  - POSIX typed name: pid_t for pid (signed int on Linux, fits `int`).
+  - pid semantics:
+      pid > 0   : send to that specific process.
+      pid == 0  : send to every process in the caller's process group.
+      pid == -1 : send to every process the caller has permission to
+                  signal, except init (pid 1).
+      pid < -1  : send to every process in process group |pid|.
+  - sig == 0 performs the permission/existence check only; no signal is
+    delivered. Returns 0 if the pid exists and is signalable, -1 with
+    ESRCH otherwise.
+  - Common signal numbers on Linux (arch-independent for these):
+    SIGHUP=1, SIGINT=2, SIGQUIT=3, SIGKILL=9, SIGTERM=15, SIGSTOP=19,
+    SIGCONT=18, SIGUSR1=10, SIGUSR2=12.
+  - errno values of interest: EPERM (not permitted to signal target),
+    ESRCH (no such pid/group), EINVAL (invalid signal number).
+  - SIGKILL (9) and SIGSTOP (19) cannot be caught, blocked, or ignored
+    by the target.

@@ -1,0 +1,39 @@
+name: CFRetain
+platform: macos
+lib: CoreFoundation
+description: |
+  Increment the reference count of a Core Foundation object. Returns
+  the same pointer that was passed in, which makes CFRetain convenient
+  to chain inside expressions. Balances a future CFRelease.
+
+lowering: indirect_call
+
+seed:
+  header: macos_corefoundation
+  field: CFRetain
+  access: "s->corefoundation->CFRetain"
+
+# Apple typed names (for cross-reference, not used in seeds.h):
+#   CFTypeRef = const void *  (opaque handle to any CF object)
+signature:
+  return:
+    c_type: "const void *"
+    on_failure: "undefined if cf is NULL; otherwise always returns cf"
+  params:
+    - { name: cf, c_type: "const void *" }
+
+example: |
+  void *obj2 = (void *)s->corefoundation->CFRetain(obj);
+  /* obj == obj2; refcount of obj is now one higher. */
+
+notes: |
+  - Passing NULL is undefined behavior in Apple's documentation — it
+    typically crashes. Null-check before calling if the source is
+    uncertain.
+  - Every CFRetain must be paired with exactly one CFRelease to avoid
+    leaks. Objects returned by "Create" / "Copy" functions are already
+    +1 retained; only call CFRetain when you take additional ownership.
+  - CFTypeRef is bridged with Objective-C `id` for toll-free-bridged
+    types (CFStringRef <-> NSString *, etc.); CFRetain is equivalent to
+    sending `-retain` under manual reference counting.
+  - Thread-safe: CF refcount operations use atomic instructions.

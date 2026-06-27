@@ -1,0 +1,83 @@
+name: NtReadFile
+platform: windows
+lib: ntdll
+description: |
+  Native API counterpart to ReadFile. Reads data from an open file
+  object (file, pipe, device, etc.) into a caller-supplied buffer.
+  Lower-level than kernel32!ReadFile, which is a thin wrapper around
+  this function. Useful when the loader has resolved ntdll but not
+  yet kernel32, or when avoiding kernel32 imports entirely.
+
+lowering: indirect_call
+
+seed:
+  header: windows_ntdll
+  field: NtReadFile
+  access: "s->ntdll->NtReadFile"
+
+# MSDN / NT named types translated to plain C:
+#   HANDLE              -> void *
+#   PIO_APC_ROUTINE     -> void * (callback fn pointer, NULL for sync)
+#   PVOID               -> void *
+#   PIO_STATUS_BLOCK    -> void *  (opaque struct: { NTSTATUS; ULONG_PTR; })
+#   ULONG               -> unsigned int
+#   PLARGE_INTEGER      -> long long *  (8-byte signed offset, NULL = current pos)
+#   NTSTATUS            -> int  (0 = STATUS_SUCCESS; nonzero = failure or info)
+signature:
+  return:
+    c_type: int
+    on_failure: "NTSTATUS != 0 indicates failure; STATUS_PENDING (0x103) for async"
+  params:
+    - { name: FileHandle,    c_type: "void *" }
+    - { name: Event,         c_type: "void *" }
+    - { name: ApcRoutine,    c_type: "void *" }
+    - { name: ApcContext,    c_type: "void *" }
+    - { name: IoStatusBlock, c_type: "void *" }
+    - { name: Buffer,        c_type: "void *" }
+    - { name: Length,        c_type: "unsigned int" }
+    - { name: ByteOffset,    c_type: "long long *" }
+    - { name: Key,           c_type: "unsigned int *" }
+
+example: |
+  /* IO_STATUS_BLOCK is two pointer-sized words; allocate inline. */
+  struct { int status; void *info; } iosb;
+  char buf[256];
+  int status = s->ntdll->NtReadFile(
+      hFile,
+      NULL,   /* Event */
+      NULL,   /* ApcRoutine */
+      NULL,   /* ApcContext */
+      &iosb,
+      buf,
+      sizeof(buf),
+      NULL,   /* ByteOffset: NULL = use current file position */
+      NULL    /* Key */
+  );
+  /* On success (status == 0), iosb.info holds the byte count read. */
+
+notes: |
+  - IO_STATUS_BLOCK layout: { NTSTATUS Status; ULONG_PTR Information; }.
+    On x64 that's 4 bytes + 4 bytes padding + 8 bytes = 16 bytes total.
+    On x86 it's 4 + 4 = 8 bytes. The Information field receives the
+    number of bytes actually read on success.
+  - ByteOffset semantics: pass NULL to read from the file's current
+    position (only valid if the handle was opened with
+    FILE_SYNCHRONOUS_IO_*). Pass a pointer to a LARGE_INTEGER for
+    explicit positioning; the special value 0xFFFFFFFFFFFFFFFE means
+    "current position" without requiring synchronous mode.
+  - Synchronous vs async: if the handle was opened with
+    FILE_SYNCHRONOUS_IO_NONALERT / FILE_SYNCHRONOUS_IO_ALERT, the call
+    blocks until completion. Otherwise it may return STATUS_PENDING
+    (0x103), and the caller must wait on Event or the FileHandle itself.
+  - Common return values: STATUS_SUCCESS (0), STATUS_END_OF_FILE
+    (0xC0000011), STATUS_PENDING (0x00000103), STATUS_INVALID_HANDLE
+    (0xC0000008), STATUS_ACCESS_DENIED (0xC0000022).
+  - Win64 ABI: first four args (FileHandle, Event, ApcRoutine, ApcContext)
+    in RCX, RDX, R8, R9; remaining five args on the stack above the
+    32-byte shadow space. Clang handles this when
+    --target=x86_64-pc-windows-*.
+  - Unlike ReadFile, no GetLastError translation occurs — inspect the
+    NTSTATUS directly. Use RtlNtStatusToDosError if a Win32 error code
+    is needed.
+  - Key parameter is almost always NULL; it's used only with byte-range
+    locks established via NtLockFile.

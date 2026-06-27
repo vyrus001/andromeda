@@ -1,0 +1,42 @@
+name: CFRelease
+platform: macos
+lib: CoreFoundation
+description: |
+  Decrement the reference count of a CoreFoundation object. When the
+  count reaches zero the object is deallocated. Used to balance any
+  CF function whose name contains "Create" or "Copy", and any object
+  retained via CFRetain.
+
+lowering: indirect_call
+
+seed:
+  header: macos_corefoundation
+  field: CFRelease
+  access: "s->corefoundation->CFRelease"
+
+signature:
+  return:
+    c_type: void
+  params:
+    - { name: cf, c_type: "const void *" }   # CFTypeRef
+
+example: |
+  void *str = CFStringCreateWithCString(...);
+  /* ... use str ... */
+  s->corefoundation->CFRelease(str);
+
+notes: |
+  - CFTypeRef is an opaque `const void *` in Apple's headers; any CF
+    object (CFStringRef, CFArrayRef, CFDataRef, ...) is assignment-
+    compatible with it.
+  - Passing NULL is UNDEFINED BEHAVIOR per Apple's docs (it does NOT
+    silently no-op like Objective-C release on nil). Always guard:
+    `if (cf) s->corefoundation->CFRelease(cf);`
+  - Follow the Create/Copy rule: ownership is transferred to the caller
+    by any CF function whose name contains "Create" or "Copy", and the
+    caller is responsible for a matching CFRelease.
+  - Toll-free bridged Foundation objects (e.g. NSString <-> CFStringRef)
+    can be released with either CFRelease or -release; pick one
+    convention per object to avoid double-frees.
+  - Not thread-safe for the final release if other threads still hold
+    references without their own retain.

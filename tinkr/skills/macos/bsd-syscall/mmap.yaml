@@ -1,0 +1,96 @@
+name: mmap
+platform: macos
+lib: bsd-syscall
+description: |
+  Map files or anonymous memory into the process address space via the
+  BSD-class syscall directly, bypassing libSystem. Useful when the blob
+  must avoid resolving libSystem.B.dylib's mmap symbol — the syscall
+  number is baked into inline asm at codegen time.
+
+lowering: syscall
+
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "MAP_FAILED ((void *)-1); helper converts to -errno-as-pointer is NOT done — see notes"
+  params:
+    - { name: addr,   c_type: "void *" }
+    - { name: length, c_type: size_t }
+    - { name: prot,   c_type: int }
+    - { name: flags,  c_type: int }
+    - { name: fd,     c_type: int }
+    - { name: offset, c_type: "long long" }
+
+arch:
+  arm64:
+    syscall_number: 197    # SYS_mmap
+    helper: |
+      static void *sys_mmap(void *addr, unsigned long length, int prot,
+                            int flags, int fd, long long offset) {
+          register long x0  __asm__("x0")  = (long)addr;
+          register long x1  __asm__("x1")  = (long)length;
+          register long x2  __asm__("x2")  = (long)prot;
+          register long x3  __asm__("x3")  = (long)flags;
+          register long x4  __asm__("x4")  = (long)fd;
+          register long x5  __asm__("x5")  = (long)offset;
+          register long x16 __asm__("x16") = 197;   /* SYS_mmap */
+          __asm__ volatile (
+              "svc #0x80\n\t"
+              "b.cc 1f\n\t"
+              "mov x0, #-1\n"   /* on error: return MAP_FAILED */
+              "1:"
+              : "+r"(x0)
+              : "r"(x1), "r"(x2), "r"(x3), "r"(x4), "r"(x5), "r"(x16)
+              : "cc", "memory"
+          );
+          return (void *)x0;
+      }
+  x86_64:
+    syscall_number: 197    # SYS_mmap; encoded as 0x2000000 | 197 for BSD class
+    helper: |
+      static void *sys_mmap(void *addr, unsigned long length, int prot,
+                            int flags, int fd, long long offset) {
+          long ret;
+          register long r10 __asm__("r10") = (long)flags;
+          register long r8  __asm__("r8")  = (long)fd;
+          register long r9  __asm__("r9")  = (long)offset;
+          __asm__ volatile (
+              "syscall\n\t"
+              "jnc 1f\n\t"
+              "movq $-1, %%rax\n"   /* on error: return MAP_FAILED */
+              "1:"
+              : "=a"(ret)
+              : "0"((long)0x20000C5),   /* (BSD class << 24) | SYS_mmap (197 = 0xC5) */
+                "D"(addr), "S"(length), "d"((long)prot),
+                "r"(r10), "r"(r8), "r"(r9)
+              : "rcx", "r11", "cc", "memory"
+          );
+          return (void *)ret;
+      }
+
+example: |
+  /* Anonymous RW page, 4 KiB.
+     PROT_READ|PROT_WRITE = 3, MAP_ANON|MAP_PRIVATE = 0x1002 on macOS. */
+  void *page = sys_mmap(NULL, 4096, 3, 0x1002, -1, 0);
+  if (page == (void *)-1) { /* failed */ }
+
+notes: |
+  - macOS syscalls signal failure via the carry flag, not negative
+    return. The helper collapses both success-pointer and error into
+    the conventional mmap return: a valid pointer or MAP_FAILED
+    ((void *)-1). The actual errno value is lost — callers that need
+    it should fall back to macos/libSystem/mmap.
+  - On x86_64 macOS, the syscall number embeds the BSD class in the
+    upper byte: SYS_mmap = 197 (0xC5), encoded as 0x20000C5.
+  - macOS arm64 SYS_mmap takes 6 args directly in x0..x5 (no padding
+    arg, unlike some older BSDs). offset is a full 64-bit long long.
+  - macOS-specific flag values differ from Linux: MAP_ANON=0x1000,
+    MAP_PRIVATE=0x0002, MAP_SHARED=0x0001, MAP_FIXED=0x0010,
+    MAP_JIT=0x0800. PROT_READ=1, PROT_WRITE=2, PROT_EXEC=4.
+  - MAP_JIT is required on hardened-runtime processes to later flip a
+    page to PROT_EXEC on Apple Silicon. Direct syscall does not exempt
+    you from code-signing policy — pthread_jit_write_protect_np is still
+    needed to toggle W^X on JIT pages.
+  - Apple discourages direct syscalls; numbers can shift between macOS
+    versions. Prefer macos/libSystem/mmap (indirect_call) for long-lived
+    tooling; use this skill only when symbol-free blobs are required.

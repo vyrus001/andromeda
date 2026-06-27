@@ -1,0 +1,59 @@
+name: SetFilePointer
+platform: windows
+lib: kernel32
+description: |
+  Move the file pointer of an open file handle. Returns the new low-order
+  32 bits of the position; the high-order bits go via lpDistanceToMoveHigh
+  (in/out). Legacy 32-bit-style API — SetFilePointerEx is the modern
+  64-bit-clean replacement, but SetFilePointer remains widely available
+  and is fine for files <4 GiB or when caller manages the high dword.
+
+lowering: indirect_call
+
+seed:
+  header: windows_kernel32
+  field: SetFilePointer
+  access: "s->kernel32->SetFilePointer"
+
+# MSDN typed names translated to plain C:
+#   HANDLE  -> void *
+#   LONG    -> int           (signed 32-bit distance)
+#   PLONG   -> int *         (optional high dword, in/out; may be NULL)
+#   DWORD   -> unsigned int
+signature:
+  return:
+    c_type: "unsigned int"
+    on_failure: "INVALID_SET_FILE_POINTER (0xFFFFFFFF); check GetLastError() != NO_ERROR to distinguish from a legitimate high-bit position"
+  params:
+    - { name: hFile,                 c_type: "void *" }
+    - { name: lDistanceToMove,       c_type: "int" }
+    - { name: lpDistanceToMoveHigh,  c_type: "int *" }
+    - { name: dwMoveMethod,          c_type: "unsigned int" }
+
+example: |
+  /* Seek to absolute offset 0 (FILE_BEGIN = 0). */
+  unsigned int pos = s->kernel32->SetFilePointer(hFile, 0, NULL, 0);
+  if (pos == 0xFFFFFFFF) { /* check GetLastError */ }
+
+notes: |
+  - dwMoveMethod values: FILE_BEGIN=0, FILE_CURRENT=1, FILE_END=2.
+  - Return value 0xFFFFFFFF (INVALID_SET_FILE_POINTER) is ambiguous:
+    it can either be an error OR a legitimate position whose low dword
+    is 0xFFFFFFFF. To disambiguate, the caller must first call
+    SetLastError(NO_ERROR) (or assume cleared), invoke SetFilePointer,
+    and then if the return is 0xFFFFFFFF check GetLastError() —
+    NO_ERROR (0) means success, anything else is a real failure.
+  - lpDistanceToMoveHigh:
+      * NULL  -> treat lDistanceToMove as a signed 32-bit offset; cannot
+        seek past 2 GiB. Return is the new low dword of the position.
+      * non-NULL -> the high dword of the distance is read from
+        *lpDistanceToMoveHigh on entry, combined with lDistanceToMove
+        as a signed 64-bit value; on return, *lpDistanceToMoveHigh
+        receives the high dword of the new position.
+  - Prefer SetFilePointerEx for new code: it takes a single LARGE_INTEGER
+    and returns BOOL, eliminating the 0xFFFFFFFF ambiguity entirely.
+  - Win64 ABI: hFile in RCX, lDistanceToMove in EDX (sign-extended slot),
+    lpDistanceToMoveHigh in R8, dwMoveMethod in R9D, plus the 32-byte
+    shadow space. Clang handles this when --target=x86_64-pc-windows-*.
+  - Not valid on non-seekable handles (pipes, sockets, some consoles);
+    fails with ERROR_INVALID_FUNCTION (1) or ERROR_NEGATIVE_SEEK (131).

@@ -1,0 +1,43 @@
+name: munmap
+platform: linux
+lib: libc
+description: |
+  Unmap a region of memory previously established with mmap. After a
+  successful call, further references to the unmapped range generate
+  SIGSEGV. Partial unmaps (a sub-range of a prior mapping) are legal
+  and split the underlying VMA.
+
+lowering: indirect_call
+
+seed:
+  header: linux_libc
+  field: munmap
+  access: "s->libc->munmap"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1, errno set"
+  params:
+    - { name: addr,   c_type: "void *" }
+    - { name: length, c_type: size_t }
+
+example: |
+  void *page = s->libc->mmap(NULL, 4096, 3, 0x22, -1, 0);
+  /* ... use page ... */
+  int rc = s->libc->munmap(page, 4096);
+  if (rc < 0) { /* errno set */ }
+
+notes: |
+  - `addr` must be page-aligned (typically 4096 bytes on x86_64/arm64,
+    though arm64 systems may use 16K or 64K pages). `length` is rounded
+    up to the next page-size multiple by the kernel.
+  - Unmapping a range that contains no current mapping is NOT an error
+    on Linux — it succeeds silently. Compare with EINVAL for misaligned
+    `addr` or zero `length`.
+  - Common errno values: EINVAL (addr not aligned, length == 0, or the
+    range extends outside the user address space), ENOMEM (the unmap
+    would exceed the maximum number of VMAs).
+  - Safe to call from signal handlers (async-signal-safe per POSIX).
+  - Does NOT close any file descriptor that backed a file mapping; the
+    fd lifetime is independent of the mapping after mmap returns.

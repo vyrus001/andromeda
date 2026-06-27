@@ -1,0 +1,40 @@
+name: Sleep
+platform: windows
+lib: kernel32
+description: |
+  Suspend the current thread for at least the specified number of
+  milliseconds. The thread relinquishes the remainder of its time
+  slice; actual sleep duration may be longer depending on system
+  timer resolution and scheduler load.
+
+lowering: indirect_call
+
+seed:
+  header: windows_kernel32
+  field: Sleep
+  access: "s->kernel32->Sleep"
+
+# MSDN: VOID Sleep(DWORD dwMilliseconds);
+#   DWORD = unsigned int
+signature:
+  return:
+    c_type: void
+  params:
+    - { name: dwMilliseconds, c_type: "unsigned int" }
+
+example: |
+  s->kernel32->Sleep(1000);   /* sleep ~1 second */
+
+notes: |
+  - Sleep(0) yields the remainder of the current time slice to any
+    other ready thread of equal priority on the same processor; if
+    no such thread exists, returns immediately.
+  - Sleep(INFINITE) (0xFFFFFFFF) blocks forever — useful as a debug
+    hang but rarely what a blob wants.
+  - Default Windows timer resolution is ~15.6 ms; sub-millisecond
+    sleeps round up. Use timeBeginPeriod (winmm) for finer-grained
+    sleeps if needed.
+  - Cannot be interrupted by signals (Windows has no POSIX signals);
+    use SleepEx for alertable waits that APCs can break.
+  - Win64 ABI: single DWORD argument passes in ECX (low 32 bits of
+    RCX). Clang handles this when --target=x86_64-pc-windows-*.

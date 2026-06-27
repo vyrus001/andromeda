@@ -1,0 +1,57 @@
+name: close
+platform: linux
+lib: syscall
+description: |
+  Linux close(2) via direct syscall. Releases the file descriptor `fd`
+  so it may be reused. No libc dependency — the syscall number is baked
+  into inline asm at codegen time.
+
+lowering: syscall
+
+signature:
+  return:
+    c_type: long
+    on_failure: "negative -errno on error"
+  params:
+    - { name: fd, c_type: int }
+
+arch:
+  arm64:
+    syscall_number: 57
+    helper: |
+      static long sys_close(int fd) {
+          register long x0 __asm__("x0") = (long)fd;
+          register long x8 __asm__("x8") = 57;
+          __asm__ volatile ("svc #0"
+                            : "+r"(x0)
+                            : "r"(x8)
+                            : "memory");
+          return x0;
+      }
+  x86_64:
+    syscall_number: 3
+    helper: |
+      static long sys_close(int fd) {
+          long ret;
+          __asm__ volatile ("syscall"
+                            : "=a"(ret)
+                            : "0"((long)3), "D"((long)fd)
+                            : "rcx", "r11", "memory");
+          return ret;
+      }
+
+example: |
+  long r = sys_close(fd);
+  if (r < 0) { /* errno = -r */ }
+
+notes: |
+  - On success returns 0; on error returns a negative errno (e.g.
+    -EBADF == -9 if `fd` is not a valid descriptor).
+  - Do not retry close() on EINTR on Linux: the fd is closed regardless,
+    and a retry could race against another thread that has since
+    reused the descriptor. Treat -EINTR as success for fd-lifecycle
+    purposes.
+  - Closing an fd that has pending writes (e.g. on NFS) may surface
+    deferred I/O errors here; check the return if data integrity matters.
+  - The helper is emitted at file scope; SheLLVM's flatten pass folds
+    it into the entry function so no standalone symbol leaks into the blob.

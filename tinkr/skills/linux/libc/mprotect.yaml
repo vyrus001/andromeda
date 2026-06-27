@@ -1,0 +1,49 @@
+name: mprotect
+platform: linux
+lib: libc
+description: |
+  Change the access protections of a range of pages in the calling
+  process's virtual address space. Used to flip JIT-allocated memory
+  from RW to RX (or RWX), to make read-only data writable temporarily,
+  or to harden mappings by dropping write/execute permission.
+
+lowering: indirect_call
+
+seed:
+  header: linux_libc
+  field: mprotect
+  access: "s->libc->mprotect"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1, errno set"
+  params:
+    - { name: addr, c_type: "void *" }
+    - { name: len,  c_type: size_t }
+    - { name: prot, c_type: int }
+
+example: |
+  /* Flip a freshly mmap'd RW page to RX for JIT execution. */
+  /* PROT_READ|PROT_EXEC = 5 */
+  int rc = s->libc->mprotect(page, 4096, 5);
+  if (rc < 0) { /* errno set */ }
+
+notes: |
+  - `addr` MUST be page-aligned. On Linux the page size is typically
+    4096 on x86_64 and i386, and 4096 or 16384 on arm64 depending on
+    kernel config. Query via sysconf(_SC_PAGESIZE) or getpagesize() if
+    you need to be portable; otherwise round to 4096 for common cases.
+  - `len` is rounded up to a whole number of pages by the kernel, but
+    you should still pass a multiple of the page size for clarity.
+  - Linux PROT_* values: PROT_NONE=0, PROT_READ=1, PROT_WRITE=2,
+    PROT_EXEC=4. OR them together. These differ from BSD/macOS in
+    edge cases (e.g., PROT_GROWSDOWN=0x01000000 is Linux-only).
+  - W^X policies: some hardened kernels (and SELinux/AppArmor profiles)
+    reject PROT_WRITE|PROT_EXEC simultaneously, returning -EACCES.
+    Prefer to flip RW -> RX after writing.
+  - The range [addr, addr+len) must lie within a single contiguous
+    mapping established by mmap/mremap/brk; otherwise -ENOMEM.
+  - Common errno values: EACCES (protection conflicts with file mode),
+    EINVAL (misaligned addr or bad prot bits), ENOMEM (range invalid
+    or kernel out of internal structures).

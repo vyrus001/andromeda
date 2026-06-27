@@ -1,0 +1,35 @@
+name: sleep
+platform: macos
+lib: libSystem
+description: |
+  Suspend execution of the calling thread for at least `seconds` seconds.
+  Resolves at load-time through the seed struct, so the blob carries no
+  external symbol dependency — whatever the loader puts at
+  s->libsystem->sleep gets called.
+
+lowering: indirect_call
+
+seed:
+  header: macos_libsystem
+  field: sleep
+  access: "s->libsystem->sleep"
+
+signature:
+  return:
+    c_type: "unsigned int"
+    on_failure: "returns 0 on full sleep; nonzero = seconds remaining if interrupted by a signal"
+  params:
+    - { name: seconds, c_type: "unsigned int" }
+
+example: |
+  unsigned int remaining = s->libsystem->sleep(5);
+  if (remaining != 0) { /* interrupted by a signal, `remaining` seconds left */ }
+
+notes: |
+  - Granularity is whole seconds. For sub-second delays use
+    macos/libSystem/usleep (microseconds) or macos/libSystem/nanosleep.
+  - May return early if a signal is delivered to the thread; the return
+    value is the number of seconds left unslept.
+  - Internally implemented on top of nanosleep; sleeping 0 seconds is a
+    no-op that returns immediately.
+  - Cancellation point on threads with PTHREAD_CANCEL_ENABLE.

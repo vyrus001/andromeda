@@ -1,0 +1,78 @@
+name: fstat
+platform: macos
+lib: libSystem
+description: |
+  Retrieve file metadata for an open file descriptor. Fills a `struct stat`
+  with size, mode, timestamps, device/inode identifiers, and ownership.
+  Resolves at load-time through the seed struct, so the blob calls
+  whatever libSystem symbol the loader plants there.
+
+lowering: indirect_call
+
+seed:
+  header: macos_libsystem
+  field: fstat
+  access: "s->libsystem->fstat"
+
+# macOS exposes several ABI variants of stat-family functions. The
+# default `fstat` symbol on modern macOS (>= 10.6) is the "64-bit
+# inode" variant — internally `fstat$INODE64` on x86_64, and the
+# plain `fstat` on arm64 (which is already INODE64). The seed must
+# point to the matching variant; the struct layout below assumes
+# INODE64. There is NO `_DARWIN_FEATURE_64_BIT_INODE`-toggled
+# legacy struct on arm64.
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1, errno set"
+  params:
+    - { name: fd,  c_type: int }
+    - { name: buf, c_type: "void *" }   # struct stat *
+
+example: |
+  /* Layout of macOS struct stat (INODE64 variant, 144 bytes on arm64
+     and x86_64). The agent should emit this as a local struct or a
+     raw byte buffer; only the fields it actually reads need named
+     access. */
+  struct macos_stat {
+      unsigned int   st_dev;          /* dev_t (int32) */
+      unsigned short st_mode;         /* mode_t (uint16) */
+      unsigned short st_nlink;        /* nlink_t (uint16) */
+      unsigned long long st_ino;      /* ino_t (uint64, INODE64) */
+      unsigned int   st_uid;
+      unsigned int   st_gid;
+      unsigned int   st_rdev;
+      long long      st_atime_sec;  long long st_atime_nsec;
+      long long      st_mtime_sec;  long long st_mtime_nsec;
+      long long      st_ctime_sec;  long long st_ctime_nsec;
+      long long      st_birthtime_sec; long long st_birthtime_nsec;
+      long long      st_size;         /* off_t */
+      long long      st_blocks;       /* blkcnt_t */
+      int            st_blksize;      /* blksize_t */
+      unsigned int   st_flags;
+      unsigned int   st_gen;
+      int            st_lspare;
+      long long      st_qspare[2];
+  };
+  struct macos_stat st;
+  int rc = s->libsystem->fstat(fd, &st);
+  if (rc == 0) { long long sz = st.st_size; /* ... */ }
+
+notes: |
+  - `buf` points to caller-allocated `struct stat`-shaped memory. The
+    skill exposes it as `void *` so the agent can declare its own
+    matching struct without dragging in <sys/stat.h>.
+  - INODE64 layout: `st_ino` is 64-bit, total size ~144 bytes. This is
+    the only layout on arm64 macOS; on x86_64 macOS the seed should
+    resolve to `fstat$INODE64` (the loader's dlsym of "fstat" already
+    gives this on 10.6+).
+  - Common `st_mode` masks: S_IFMT=0170000, S_IFREG=0100000,
+    S_IFDIR=040000, S_IFLNK=0120000, S_IFCHR=020000, S_IFBLK=060000,
+    S_IFIFO=010000, S_IFSOCK=0140000.
+  - Timestamps are `struct timespec` pairs (sec + nsec); birthtime is
+    macOS-specific (no Linux equivalent in plain stat).
+  - For directly-opened path metadata use `stat`/`lstat` (separate
+    skills); `fstat` requires an already-open fd, which avoids TOCTOU
+    races between path resolution and metadata read.
+  - On error returns -1 and sets errno; common errnos: EBADF (bad fd),
+    EFAULT (bad buf), EIO.

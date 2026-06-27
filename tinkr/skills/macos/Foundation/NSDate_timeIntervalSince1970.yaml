@@ -1,0 +1,58 @@
+name: timeIntervalSince1970
+platform: macos
+lib: Foundation
+class: NSDate
+description: |
+  Return the number of seconds between the receiver NSDate and the UNIX
+  epoch (1970-01-01 00:00:00 UTC). Equivalent to:
+  [date timeIntervalSince1970]. The result is an NSTimeInterval, which
+  is a typedef for `double`, so sub-second precision is preserved.
+
+lowering: objc_msgsend
+
+requires:
+  - macos/libobjc/objc_getClass
+  - macos/libobjc/sel_registerName
+  - macos/libobjc/objc_msgSend
+
+class_name: NSDate
+selector: "timeIntervalSince1970"
+receiver_kind: instance
+
+signature:
+  return:
+    c_type: double
+    on_failure: "no failure mode; result is undefined for nil receiver (returns 0.0)"
+  params:
+    - { name: self, c_type: "void *" }
+
+helper: |
+  static double NSDate_timeIntervalSince1970(struct macos_libobjc *o,
+                                             void *date) {
+      void *sel = o->sel_registerName("timeIntervalSince1970");
+      /* Return type is double — on arm64 and x86_64 this comes back in
+         the FP return register (d0 / xmm0), NOT the integer return
+         register. The typed cast is essential; calling the raw
+         variadic objc_msgSend would return the wrong register. */
+      typedef double (*msg_t)(void *, void *);
+      return ((msg_t)o->objc_msgSend)(date, sel);
+  }
+
+example: |
+  /* Assume `now` is an NSDate * obtained from [NSDate date] or similar. */
+  double secs = NSDate_timeIntervalSince1970(s->libobjc, now);
+
+notes: |
+  - NSTimeInterval is `typedef double NSTimeInterval;` in Foundation.
+  - Floating-point returns require the typed function-pointer cast.
+    Apple Silicon and x86_64 return doubles in d0/xmm0 respectively;
+    the integer-returning variadic form of objc_msgSend would read
+    x0/rax and produce garbage. Never skip the cast for FP returns.
+  - There is no objc_msgSend_fpret variant needed on arm64 or modern
+    x86_64 for `double` returns — the standard objc_msgSend handles
+    FP returns correctly when called through a properly typed pointer.
+    (fpret was only needed for `long double` on i386.)
+  - Pre-1970 dates yield a negative result; this is normal and not an
+    error condition.
+  - Sending to a nil receiver returns 0.0 (objc_msgSend's nil-handling
+    zeroes the return registers, including FP).

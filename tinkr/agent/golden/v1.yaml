@@ -1,0 +1,45 @@
+# Golden tests v1: end-to-end agent → blob → exec → validate.
+#
+# Each test runs the agent for a prompt, builds the blob, exec's it
+# (in-container via qemu for non-host archs), captures stdout and the
+# entry function's return value, and compares to expected.
+#
+# Linux-only at this layer — macOS / Windows execution would need to
+# orchestrate the Mac host loader or qemu+ms_abi shim, deferred.
+
+tests:
+  - name: linux-syscall-write-hello
+    prompt: |
+      Use the linux write syscall to print exactly the string
+      'hello golden syscall\n' to stdout. No retry loop is needed for
+      a 22-byte write to a tty/pipe.
+    target: ""
+    expect_stdout: "hello golden syscall"
+    expect_exit: 0
+
+  - name: linux-libc-write-hello
+    prompt: |
+      Use s->libc->write to print exactly the string
+      'hello golden libc\n' to stdout. Treat partial writes as
+      complete for this short message.
+    target: ""
+    expect_stdout: "hello golden libc"
+    expect_exit: 0
+
+  - name: linux-libc-exit-status
+    prompt: |
+      Don't print anything. Call s->libc->exit(42) to terminate the
+      process with status 42. The function should never return — the
+      `return 0` after the exit call is unreachable but required for
+      the C compiler.
+    target: ""
+    expect_stdout: ""
+    expect_exit: 42
+
+  - name: cross-arch-x86_64-syscall-write
+    prompt: |
+      Use the linux write syscall to print exactly 'hello golden x86_64\n'
+      to stdout.
+    target: "x86_64-linux-gnu"
+    expect_stdout: "hello golden x86_64"
+    expect_exit: 0

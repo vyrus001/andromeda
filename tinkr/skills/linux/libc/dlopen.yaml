@@ -1,0 +1,48 @@
+name: dlopen
+platform: linux
+lib: libc
+description: |
+  Load a shared object (.so) into the process address space and return an
+  opaque handle suitable for dlsym/dlclose. The handle is reference-counted
+  internally by the dynamic loader: repeated dlopen() calls on the same
+  filename bump the refcount without re-mapping.
+
+lowering: indirect_call
+
+seed:
+  header: linux_libc
+  field: dlopen
+  access: "s->libc->dlopen"
+
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "NULL; call dlerror() for a human-readable message"
+  params:
+    - { name: filename, c_type: "const char *" }
+    - { name: flags,    c_type: int }
+
+example: |
+  /* RTLD_NOW = 2, RTLD_LAZY = 1, RTLD_GLOBAL = 0x100, RTLD_LOCAL = 0 */
+  void *h = s->libc->dlopen("libm.so.6", 2);
+  if (!h) { /* s->libc->dlerror() returns the message */ }
+
+notes: |
+  - dlopen historically lives in libdl.so on older glibc; on glibc 2.34+
+    it was merged into libc.so.6. The seed entry abstracts this — the
+    loader can resolve it from whichever DSO actually exports it.
+  - Common flags: RTLD_LAZY=1 (resolve symbols on first use),
+    RTLD_NOW=2 (resolve everything immediately), RTLD_GLOBAL=0x100
+    (symbols visible to subsequently loaded objects),
+    RTLD_LOCAL=0 (default; symbols not exported),
+    RTLD_NODELETE=0x1000, RTLD_NOLOAD=4 (probe-only).
+  - Exactly one of RTLD_LAZY or RTLD_NOW must be set; they may be OR'd
+    with the visibility flags.
+  - filename=NULL returns a handle to the main program (useful with
+    dlsym to look up symbols already resolved in the executable).
+  - The handle is opaque — do NOT dereference. Pair every successful
+    dlopen with a dlclose if the blob is long-lived; short-lived blobs
+    can leak the handle since process exit unmaps everything.
+  - dlerror() is NOT thread-safe in the classic POSIX sense (one error
+    string per thread on glibc, but cleared by the next dlerror() call).
+    Call it immediately after a NULL return.

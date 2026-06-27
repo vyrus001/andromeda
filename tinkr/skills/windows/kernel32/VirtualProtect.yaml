@@ -1,0 +1,36 @@
+name: VirtualProtect
+platform: windows
+lib: kernel32
+description: |
+  Change the protection on a region of committed pages in the calling
+  process's virtual address space (e.g. flip RW pages to RX for JIT).
+
+lowering: indirect_call
+
+seed:
+  header: windows_kernel32
+  field: VirtualProtect
+  access: "s->kernel32->VirtualProtect"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "returns 0 (FALSE); GetLastError() for code"
+  params:
+    - { name: lpAddress,    c_type: "void *" }
+    - { name: dwSize,       c_type: size_t }
+    - { name: flNewProtect, c_type: "unsigned int" }
+    - { name: lpflOldProtect, c_type: "unsigned int *" }
+
+example: |
+  unsigned int old;
+  /* PAGE_EXECUTE_READ = 0x20 */
+  s->kernel32->VirtualProtect(code, code_size, 0x20, &old);
+
+notes: |
+  - flProtect values: PAGE_NOACCESS=0x01, PAGE_READONLY=0x02,
+    PAGE_READWRITE=0x04, PAGE_EXECUTE=0x10, PAGE_EXECUTE_READ=0x20,
+    PAGE_EXECUTE_READWRITE=0x40 (discouraged — EDR/CFG flag).
+  - lpflOldProtect cannot be NULL — must point to a writable DWORD.
+  - Region is rounded out to page boundaries; affects every page that
+    overlaps [lpAddress, lpAddress + dwSize).

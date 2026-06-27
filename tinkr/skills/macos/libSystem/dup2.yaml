@@ -1,0 +1,27 @@
+name: dup2
+platform: macos
+lib: libSystem
+description: |
+  Duplicate `oldfd` onto `newfd` via libSystem. Useful for redirecting
+  stdio to a different fd.
+
+lowering: indirect_call
+
+seed:
+  header: macos_libsystem
+  field: dup2
+  access: "s->libsystem->dup2"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1, errno set"
+  params:
+    - { name: oldfd, c_type: int }
+    - { name: newfd, c_type: int }
+
+example: |
+  s->libsystem->dup2(fd, 1);  /* redirect stdout */
+
+notes: |
+  - Same POSIX semantics as Linux dup2(2).

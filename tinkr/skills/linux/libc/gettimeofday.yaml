@@ -1,0 +1,48 @@
+name: gettimeofday
+platform: linux
+lib: libc
+description: |
+  Get the current wall-clock time as seconds + microseconds since the
+  Unix epoch (1970-01-01 UTC). Fills a `struct timeval`, and optionally
+  a `struct timezone` (obsolete; pass NULL).
+
+lowering: indirect_call
+
+seed:
+  header: linux_libc
+  field: gettimeofday
+  access: "s->libc->gettimeofday"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1, errno set"
+  params:
+    - { name: tv, c_type: "void *" }
+    - { name: tz, c_type: "void *" }
+
+example: |
+  struct { long tv_sec; long tv_usec; } tv;
+  int rc = s->libc->gettimeofday(&tv, 0);
+  if (rc == 0) {
+      /* tv.tv_sec  = seconds since epoch
+         tv.tv_usec = microseconds [0, 999999] */
+  }
+
+notes: |
+  - POSIX-typed signature is `int gettimeofday(struct timeval *tv,
+    struct timezone *tz)`. The seed exposes `void *` for both arguments
+    so the caller doesn't need to drag in `<sys/time.h>`; declare a
+    matching struct locally.
+  - `struct timeval` on Linux: `{ time_t tv_sec; suseconds_t tv_usec; }`.
+    Both fields are `long` on every Linux ABI where this lib will be used
+    (glibc/musl, x86_64/arm64/i386/arm with 64-bit time_t). On 32-bit
+    arm with legacy 32-bit time_t, `tv_sec` is still `long` (32-bit), so
+    the layout above works portably.
+  - The `tz` argument is obsolete and not honored by the kernel; pass
+    NULL. Historical timezone info lives in `/etc/localtime` instead.
+  - For higher-resolution or monotonic time, prefer `clock_gettime`
+    (CLOCK_REALTIME / CLOCK_MONOTONIC), which gives nanoseconds and
+    isn't affected by `settimeofday`/NTP slewing in the monotonic case.
+  - glibc routes this through the vDSO on supported arches, so the call
+    is typically just a few instructions with no syscall trap.

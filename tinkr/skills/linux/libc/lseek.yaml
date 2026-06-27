@@ -1,0 +1,46 @@
+name: lseek
+platform: linux
+lib: libc
+description: |
+  Reposition the read/write file offset of an open file descriptor.
+  Returns the resulting absolute offset in bytes from the start of
+  the file, measured from `whence`.
+
+lowering: indirect_call
+
+seed:
+  header: linux_libc
+  field: lseek
+  access: "s->libc->lseek"
+
+signature:
+  return:
+    c_type: "long long"
+    on_failure: "returns (off_t)-1, errno set"
+  params:
+    - { name: fd,     c_type: int }
+    - { name: offset, c_type: "long long" }
+    - { name: whence, c_type: int }
+
+example: |
+  /* Seek to end to determine file size, then back to start. */
+  long long size = s->libc->lseek(fd, 0, /* SEEK_END */ 2);
+  s->libc->lseek(fd, 0, /* SEEK_SET */ 0);
+
+notes: |
+  - `whence` values: SEEK_SET=0 (absolute), SEEK_CUR=1 (relative to
+    current position), SEEK_END=2 (relative to end of file). Linux also
+    supports SEEK_DATA=3 and SEEK_HOLE=4 on filesystems that report
+    sparseness.
+  - Return type is `off_t`, which is a signed 64-bit integer on modern
+    Linux (with _FILE_OFFSET_BITS=64, the glibc default for 64-bit
+    builds). We expose it as `long long` here so seeds.h stays free of
+    <sys/types.h>.
+  - Error sentinel is (off_t)-1; check for negative return and read
+    errno. A successful seek to byte 0 returns 0, not -1.
+  - Pipes, sockets, FIFOs, and most character devices are not seekable;
+    lseek on them fails with ESPIPE.
+  - Seeking past end-of-file is legal and creates a sparse hole on
+    write; reads in the hole return zeros.
+  - On 32-bit Linux, glibc routes large offsets through the `_llseek`
+    syscall transparently — the seed entry hides that.

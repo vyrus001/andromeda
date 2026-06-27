@@ -1,0 +1,33 @@
+name: GetProcAddress
+platform: windows
+lib: kernel32
+description: |
+  Return the address of an exported function or variable in a loaded
+  DLL, given the module handle (from LoadLibrary or GetModuleHandle)
+  and the symbol name.
+
+lowering: indirect_call
+
+seed:
+  header: windows_kernel32
+  field: GetProcAddress
+  access: "s->kernel32->GetProcAddress"
+
+# FARPROC is a generic function pointer; modelled as void* here.
+# lpProcName is char* (NOT wide) — Win32 API surprise.
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "returns NULL; GetLastError() for code"
+  params:
+    - { name: hModule,    c_type: "void *" }
+    - { name: lpProcName, c_type: "const char *" }
+
+example: |
+  void *user32 = s->kernel32->LoadLibraryA("user32.dll");
+  void *MessageBoxA = s->kernel32->GetProcAddress(user32, "MessageBoxA");
+
+notes: |
+  - lpProcName is ANSI (no W variant exists). Symbol name is case-sensitive
+    on import-by-name; for import-by-ordinal pass (LPCSTR)(uintptr_t)ord.
+  - Returns NULL on missing symbol — always check before casting & calling.

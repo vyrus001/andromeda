@@ -1,0 +1,50 @@
+name: array
+platform: macos
+lib: Foundation
+class: NSMutableArray
+description: |
+  Construct an empty, autoreleased NSMutableArray. Equivalent to
+  [NSMutableArray array]. Useful as a starting point for building up
+  a mutable collection at runtime; subsequent addObject:, insertObject:atIndex:,
+  etc., grow it in place.
+
+lowering: objc_msgsend
+
+requires:
+  - macos/libobjc/objc_getClass
+  - macos/libobjc/sel_registerName
+  - macos/libobjc/objc_msgSend
+
+class_name: NSMutableArray
+selector: "array"
+receiver_kind: class
+
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "NULL on allocation failure (extremely rare)"
+  params: []
+
+helper: |
+  static void *NSMutableArray_array(struct macos_libobjc *o) {
+      void *cls = o->objc_getClass("NSMutableArray");
+      void *sel = o->sel_registerName("array");
+      typedef void *(*msg_t)(void *, void *);
+      return ((msg_t)o->objc_msgSend)(cls, sel);
+  }
+
+example: |
+  void *arr = NSMutableArray_array(s->libobjc);
+  /* arr is an autoreleased empty NSMutableArray *; mutate via
+     addObject:, removeObjectAtIndex:, etc. */
+
+notes: |
+  - Returns an autoreleased instance. For short-lived blob execution the
+    ambient autorelease pool reclaims it on scope exit; no manual release.
+  - For a retained instance with a known initial capacity, prefer
+    [[NSMutableArray alloc] initWithCapacity:N] — separate skills.
+  - On arm64 the typed function-pointer cast (msg_t) is mandatory:
+    invoking objc_msgSend through its raw variadic prototype mis-passes
+    args under the arm64 variadic ABI.
+  - The returned id is type-erased as `void *`; pass it as the receiver
+    to NSMutableArray instance-method skills (addObject:, count, etc.).

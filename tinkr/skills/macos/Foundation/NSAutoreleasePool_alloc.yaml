@@ -1,0 +1,56 @@
+name: alloc
+platform: macos
+lib: Foundation
+class: NSAutoreleasePool
+description: |
+  Allocate an uninitialized NSAutoreleasePool instance. Equivalent to
+  [NSAutoreleasePool alloc]. Must be chained with `init` before use.
+  Used to establish an autorelease pool scope so that subsequent
+  autoreleased Cocoa objects (e.g. NSStrings from stringWithUTF8String:)
+  are drained when the pool is released.
+
+lowering: objc_msgsend
+
+requires:
+  - macos/libobjc/objc_getClass
+  - macos/libobjc/sel_registerName
+  - macos/libobjc/objc_msgSend
+
+class_name: NSAutoreleasePool
+selector: "alloc"
+receiver_kind: class
+
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "NULL on allocation failure (rare)"
+  params: []
+
+helper: |
+  static void *NSAutoreleasePool_alloc(struct macos_libobjc *o) {
+      void *cls = o->objc_getClass("NSAutoreleasePool");
+      void *sel = o->sel_registerName("alloc");
+      typedef void *(*msg_t)(void *, void *);
+      return ((msg_t)o->objc_msgSend)(cls, sel);
+  }
+
+example: |
+  void *pool_raw = NSAutoreleasePool_alloc(s->libobjc);
+  void *pool     = NSAutoreleasePool_init(s->libobjc, pool_raw);
+  /* ... do work that creates autoreleased objects ... */
+  NSAutoreleasePool_drain(s->libobjc, pool);
+
+notes: |
+  - Returns an *uninitialized* object. Calling any method other than
+    `init` on it is undefined behavior. Always chain: alloc -> init.
+  - On Apple Silicon (arm64), objc_msgSend MUST be invoked through a
+    typed function pointer (not as variadic) — the helper handles this.
+  - Foundation requires linking against (or seed-resolving) Foundation
+    so that the NSAutoreleasePool class is registered with the Objective-C
+    runtime before objc_getClass returns non-NULL. The loader is expected
+    to dlopen Foundation.framework before invoking the blob.
+  - In modern ARC-compiled code @autoreleasepool { ... } is preferred,
+    but blobs emitted by tinkr are compiled without ARC, so explicit
+    NSAutoreleasePool management is the correct approach.
+  - Class method (receiver_kind: class): receiver is the Class pointer
+    returned by objc_getClass("NSAutoreleasePool").

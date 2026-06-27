@@ -1,0 +1,49 @@
+name: HeapFree
+platform: windows
+lib: kernel32
+description: |
+  Free a memory block previously allocated by HeapAlloc or HeapReAlloc
+  from the given heap. The block must belong to the heap identified by
+  hHeap; freeing a block from the wrong heap corrupts heap state.
+
+lowering: indirect_call
+
+seed:
+  header: windows_kernel32
+  field: HeapFree
+  access: "s->kernel32->HeapFree"
+
+# MSDN named types translated to plain C:
+#   HANDLE  -> void *
+#   DWORD   -> unsigned int
+#   LPVOID  -> void *
+#   BOOL    -> int   (0 = FALSE/fail, nonzero = TRUE/success)
+signature:
+  return:
+    c_type: int
+    on_failure: "returns 0 (FALSE); call GetLastError() for code"
+  params:
+    - { name: hHeap,   c_type: "void *" }
+    - { name: dwFlags, c_type: "unsigned int" }
+    - { name: lpMem,   c_type: "void *" }
+
+example: |
+  /* Free a block previously returned by HeapAlloc on the process heap. */
+  void *heap = s->kernel32->GetProcessHeap();
+  int ok = s->kernel32->HeapFree(heap, 0, block);
+
+notes: |
+  - dwFlags is typically 0. The only documented flag is
+    HEAP_NO_SERIALIZE (0x1), which must match how the block was
+    allocated; mismatched serialization causes races inside the heap.
+  - hHeap must be the SAME heap handle that returned the block. Use
+    GetProcessHeap() for the default process heap, or the handle from
+    HeapCreate() for a private heap.
+  - lpMem == NULL is allowed and returns TRUE (no-op), unlike some
+    legacy heap APIs. Still, prefer guarding NULL at the call site to
+    keep intent obvious in generated code.
+  - After HeapFree returns TRUE, the pointer is invalid; do not read,
+    write, or free it again. Double-free corrupts the heap and may
+    raise STATUS_HEAP_CORRUPTION on modern Windows.
+  - Win64 ABI: hHeap in RCX, dwFlags in RDX, lpMem in R8, plus the
+    32-byte shadow space. Clang handles this with --target=x86_64-pc-windows-*.

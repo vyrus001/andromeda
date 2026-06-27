@@ -1,0 +1,48 @@
+name: dlclose
+platform: linux
+lib: libc
+description: |
+  Decrement the reference count on a dynamically loaded shared object
+  handle previously returned by dlopen. When the count reaches zero,
+  the object is unmapped from the process address space and any
+  destructors it registered are run.
+
+lowering: indirect_call
+
+seed:
+  header: linux_libc
+  field: dlclose
+  access: "s->libc->dlclose"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "nonzero on error; use dlerror() for a human-readable message"
+  params:
+    - { name: handle, c_type: "void *" }
+
+example: |
+  void *h = s->libc->dlopen("libm.so.6", /* RTLD_NOW */ 2);
+  /* ... resolve symbols, call them ... */
+  int rc = s->libc->dlclose(h);
+  if (rc != 0) { /* const char *err = s->libc->dlerror(); */ }
+
+notes: |
+  - Lives in libdl on glibc < 2.34; in glibc >= 2.34 the dl* functions
+    were folded into libc.so.6 itself. The seed entry abstracts this:
+    whatever the loader resolved as "dlclose" gets called.
+  - Returns 0 on success, nonzero on failure. Unlike most libc calls
+    it does NOT set errno; call dlerror() to retrieve the error string.
+  - Passing a handle that was never returned by dlopen is undefined
+    behavior. Passing the same handle twice when the refcount has
+    reached zero is also UB.
+  - Destructors (__attribute__((destructor)) and C++ static dtors) in
+    the unloaded object run synchronously during dlclose. They may
+    call back into the process; be wary of state they touch.
+  - On many modern systems (glibc with RTLD_NODELETE behavior, musl
+    entirely) dlclose is a no-op for unload purposes — the object
+    stays mapped until process exit. Code must not rely on symbols
+    becoming invalid after dlclose returns.
+  - Function pointers obtained via dlsym from this handle become
+    dangling once the object is actually unmapped; do not call them
+    after a successful dlclose unless you know the object is pinned.

@@ -1,0 +1,42 @@
+name: socket
+platform: macos
+lib: libSystem
+description: |
+  Create an endpoint for communication. Returns a file descriptor
+  usable with connect/bind/send/recv and the rest of the BSD socket
+  API exposed by libSystem.
+
+lowering: indirect_call
+
+seed:
+  header: macos_libsystem
+  field: socket
+  access: "s->libsystem->socket"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1, errno set"
+  params:
+    - { name: domain,   c_type: int }
+    - { name: type,     c_type: int }
+    - { name: protocol, c_type: int }
+
+example: |
+  /* AF_INET=2, SOCK_STREAM=1, protocol=0 (default TCP) */
+  int fd = s->libsystem->socket(2, 1, 0);
+  if (fd < 0) { /* errno set */ }
+
+notes: |
+  - Common `domain` values on macOS: AF_UNIX=1, AF_INET=2, AF_INET6=30,
+    AF_ROUTE=17. Note AF_INET6 differs from Linux (10).
+  - Common `type` values: SOCK_STREAM=1, SOCK_DGRAM=2, SOCK_RAW=3.
+    macOS does NOT support Linux-style SOCK_CLOEXEC/SOCK_NONBLOCK flags
+    OR'd into `type`; use fcntl(F_SETFD, FD_CLOEXEC) and
+    fcntl(F_SETFL, O_NONBLOCK) after creation instead.
+  - `protocol=0` selects the default protocol for the (domain, type)
+    pair (TCP for SOCK_STREAM/AF_INET, UDP for SOCK_DGRAM/AF_INET).
+    Use IPPROTO_TCP=6, IPPROTO_UDP=17, IPPROTO_ICMP=1 to be explicit.
+  - Raw sockets (SOCK_RAW) require root on macOS.
+  - The returned fd participates in the unified BSD fd table, so
+    close()/read()/write()/select()/kqueue() all work on it.

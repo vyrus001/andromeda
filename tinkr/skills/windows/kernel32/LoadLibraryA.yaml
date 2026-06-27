@@ -1,0 +1,30 @@
+name: LoadLibraryA
+platform: windows
+lib: kernel32
+description: |
+  Load the named DLL into the process, returning a module handle
+  usable with GetProcAddress. Ansi (single-byte) name variant — pairs
+  naturally with seeds-resident C string literals.
+
+lowering: indirect_call
+
+seed:
+  header: windows_kernel32
+  field: LoadLibraryA
+  access: "s->kernel32->LoadLibraryA"
+
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "returns NULL; GetLastError() for code"
+  params:
+    - { name: lpLibFileName, c_type: "const char *" }
+
+example: |
+  void *user32 = s->kernel32->LoadLibraryA("user32.dll");
+
+notes: |
+  - Filename may be a bare name (resolved via the DLL search order),
+    a relative path, or an absolute path.
+  - For a UTF-16 path, use the W variant (separate skill, not yet
+    written).

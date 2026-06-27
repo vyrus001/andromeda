@@ -1,0 +1,38 @@
+name: VirtualAlloc
+platform: windows
+lib: kernel32
+description: |
+  Reserve and/or commit a region of pages in the calling process's
+  virtual address space.
+
+lowering: indirect_call
+
+seed:
+  header: windows_kernel32
+  field: VirtualAlloc
+  access: "s->kernel32->VirtualAlloc"
+
+# MSDN: LPVOID VirtualAlloc(LPVOID lpAddress, SIZE_T dwSize,
+#                           DWORD flAllocationType, DWORD flProtect);
+# SIZE_T = size_t (8 bytes on x64, 4 on x86).
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "returns NULL; GetLastError() for code"
+  params:
+    - { name: lpAddress,        c_type: "void *" }
+    - { name: dwSize,           c_type: size_t }
+    - { name: flAllocationType, c_type: "unsigned int" }
+    - { name: flProtect,        c_type: "unsigned int" }
+
+example: |
+  /* MEM_COMMIT|MEM_RESERVE = 0x3000, PAGE_EXECUTE_READWRITE = 0x40 */
+  void *p = s->kernel32->VirtualAlloc(NULL, 4096, 0x3000, 0x40);
+
+notes: |
+  - Common flProtect values: PAGE_READWRITE (0x04), PAGE_EXECUTE_READ (0x20),
+    PAGE_EXECUTE_READWRITE (0x40 — discouraged by EDR/CFG), PAGE_NOACCESS (0x01).
+  - Common allocation types: MEM_RESERVE (0x2000), MEM_COMMIT (0x1000),
+    MEM_RESERVE|MEM_COMMIT (0x3000).
+  - lpAddress=NULL lets the system choose; otherwise rounds down to allocation
+    granularity (64 KB on Windows).

@@ -1,0 +1,39 @@
+name: UTF8String
+platform: macos
+lib: Foundation
+class: NSString
+description: |
+  Return a pointer to the NSString's contents as a null-terminated
+  UTF-8 C string. Equivalent to: [nsstring UTF8String].
+
+lowering: objc_msgsend
+
+requires:
+  - macos/libobjc/sel_registerName
+  - macos/libobjc/objc_msgSend
+
+class_name: NSString
+selector: "UTF8String"
+receiver_kind: instance        # instance method (receiver = an NSString *)
+
+signature:
+  return:
+    c_type: "const char *"
+    on_failure: "NULL if conversion fails"
+  params: []
+
+helper: |
+  static const char *NSString_UTF8String(struct macos_libobjc *o,
+                                         void *nsstring) {
+      void *sel = o->sel_registerName("UTF8String");
+      typedef const char *(*msg_t)(void *, void *);
+      return ((msg_t)o->objc_msgSend)(nsstring, sel);
+  }
+
+example: |
+  const char *cstr = NSString_UTF8String(s->libobjc, someNSString);
+
+notes: |
+  - Pointer is owned by the NSString; do NOT free.
+  - Validity tied to the autorelease pool — if you need the bytes after
+    the next pool drain, copy them.

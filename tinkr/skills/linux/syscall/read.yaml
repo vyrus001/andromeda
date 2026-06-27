@@ -1,0 +1,69 @@
+name: read
+platform: linux
+lib: syscall
+description: |
+  Linux read(2) via direct syscall, bypassing libc. Reads up to `count`
+  bytes from file descriptor `fd` into `buf`. The syscall number is
+  baked into the inline asm at codegen time, so the blob carries no
+  external symbol dependency for this call.
+
+lowering: syscall
+
+signature:
+  return:
+    c_type: long
+    on_failure: "negative -errno on error; 0 indicates EOF"
+  params:
+    - { name: fd,    c_type: int }
+    - { name: buf,   c_type: "void *" }
+    - { name: count, c_type: "unsigned long" }
+
+arch:
+  arm64:
+    syscall_number: 63
+    helper: |
+      static long sys_read(int fd, void *buf, unsigned long n) {
+          register long x0 __asm__("x0") = (long)fd;
+          register long x1 __asm__("x1") = (long)buf;
+          register long x2 __asm__("x2") = (long)n;
+          register long x8 __asm__("x8") = 63;
+          __asm__ volatile ("svc #0"
+                            : "+r"(x0)
+                            : "r"(x1), "r"(x2), "r"(x8)
+                            : "memory");
+          return x0;
+      }
+  x86_64:
+    syscall_number: 0
+    helper: |
+      static long sys_read(int fd, void *buf, unsigned long n) {
+          long ret;
+          __asm__ volatile ("syscall"
+                            : "=a"(ret)
+                            : "0"((long)0),
+                              "D"((long)fd), "S"(buf), "d"(n)
+                            : "rcx", "r11", "memory");
+          return ret;
+      }
+
+example: |
+  char buf[256];
+  long n = sys_read(0, buf, sizeof buf);
+  if (n < 0)      { /* errno = -n */ }
+  else if (n == 0){ /* EOF */ }
+
+notes: |
+  - The helper is emitted at file scope by the agent; SheLLVM's flatten
+    pass inlines it into the entry function so it doesn't leak as a
+    standalone symbol in the blob.
+  - No errno: error returns are negative integers whose absolute value is
+    the errno code (e.g., -EBADF == -9, -EFAULT == -14, -EINTR == -4).
+  - Return value semantics: > 0 = bytes read; 0 = end-of-file (or count
+    was 0); < 0 = error. Short reads are legal even on regular files
+    when interrupted by a signal; loop if you need exactly `count` bytes.
+  - `buf` must be writable for at least `count` bytes; otherwise the
+    kernel returns -EFAULT.
+  - On non-blocking descriptors with no data ready, returns -EAGAIN
+    (-11 on most Linux arches, -EWOULDBLOCK is the same value).
+  - The agent should select the `arch` block matching the target triple
+    of the build. If both could ship, emit both behind #if defined(...).

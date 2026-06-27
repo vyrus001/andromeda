@@ -1,0 +1,25 @@
+name: close
+platform: macos
+lib: libSystem
+description: |
+  Close a file descriptor via libSystem.
+
+lowering: indirect_call
+
+seed:
+  header: macos_libsystem
+  field: close
+  access: "s->libsystem->close"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1, errno set"
+  params:
+    - { name: fd, c_type: int }
+
+example: |
+  s->libsystem->close(fd);
+
+notes: |
+  - Same POSIX semantics as Linux close(2).

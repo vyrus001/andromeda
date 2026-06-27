@@ -1,0 +1,49 @@
+name: gettimeofday
+platform: macos
+lib: libSystem
+description: |
+  Get the current wall-clock time, expressed as seconds and microseconds
+  since the Unix epoch (1970-01-01 UTC). Returns the time in a caller-
+  supplied `struct timeval`. The timezone argument is obsolete and
+  should be NULL on modern macOS.
+
+lowering: indirect_call
+
+seed:
+  header: macos_libsystem
+  field: gettimeofday
+  access: "s->libsystem->gettimeofday"
+
+# POSIX `struct timeval` on macOS is { time_t tv_sec; suseconds_t tv_usec; }
+# i.e. { long tv_sec; int tv_usec; } on 64-bit. Pass an opaque `void *`
+# in the seed signature; the caller defines a local struct.
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1, errno set"
+  params:
+    - { name: tv, c_type: "void *" }   # struct timeval *
+    - { name: tz, c_type: "void *" }   # struct timezone * (obsolete; pass NULL)
+
+example: |
+  struct tv_t { long tv_sec; int tv_usec; };
+  struct tv_t now;
+  int rc = ((int (*)(void *, void *))s->libsystem->gettimeofday)(&now, 0);
+  if (rc == 0) {
+      /* now.tv_sec = seconds since epoch, now.tv_usec = microseconds */
+  }
+
+notes: |
+  - On 64-bit macOS, `struct timeval` is laid out as
+    `{ long tv_sec; int tv_usec; }` (8 + 4 + 4 padding = 16 bytes). The
+    agent should declare a matching local struct rather than relying on
+    <sys/time.h>, since seeds.h has no system headers.
+  - The `tz` (timezone) argument is obsolete; pass NULL. macOS ignores
+    its contents and the call still succeeds.
+  - Microsecond resolution is nominal; actual precision is typically
+    sub-microsecond on Apple Silicon but is not monotonic. Use
+    clock_gettime(CLOCK_MONOTONIC, ...) or mach_absolute_time() if you
+    need a monotonic clock for measuring elapsed time.
+  - Apple has deprecated gettimeofday in favor of clock_gettime since
+    macOS 10.12; it still works and is unlikely to be removed, but
+    prefer clock_gettime for new code.

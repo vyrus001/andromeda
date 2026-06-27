@@ -1,0 +1,56 @@
+name: setMessageText
+platform: macos
+lib: AppKit
+class: NSAlert
+description: |
+  Set the primary message text of an NSAlert instance. Equivalent to
+  the Objective-C call [alert setMessageText:str]. The message text is
+  the bold headline displayed at the top of the alert panel.
+
+lowering: objc_msgsend
+
+requires:
+  - macos/libobjc/objc_getClass
+  - macos/libobjc/sel_registerName
+  - macos/libobjc/objc_msgSend
+
+class_name: NSAlert
+selector: "setMessageText:"
+receiver_kind: instance
+
+signature:
+  return:
+    c_type: void
+    on_failure: "no failure mode; nil-receiver is a silent no-op"
+  params:
+    - { name: alert, c_type: "void *" }   # NSAlert * (receiver)
+    - { name: str,   c_type: "void *" }   # NSString *
+
+helper: |
+  static void NSAlert_setMessageText(struct macos_libobjc *o,
+                                     void *alert, void *str) {
+      void *sel = o->sel_registerName("setMessageText:");
+      typedef void (*msg_t)(void *, void *, void *);
+      ((msg_t)o->objc_msgSend)(alert, sel, str);
+  }
+
+example: |
+  /* alert is an NSAlert *, title is an NSString * (e.g. built via
+     NSString_stringWithUTF8String). */
+  NSAlert_setMessageText(s->libobjc, alert, title);
+
+notes: |
+  - Instance method: receiver is the NSAlert instance itself, not the
+    class. No objc_getClass call is needed in the helper; the caller
+    supplies the receiver.
+  - The `str` argument must be an NSString * (typically obtained via
+    NSString +stringWithUTF8String: or a literal-bridge); passing a
+    raw C string will misbehave because objc_msgSend forwards it as id.
+  - AppKit must be loaded in the host process (it is for any GUI app);
+    AppKit itself contributes no symbols to this skill — only the
+    libobjc dispatch infrastructure does.
+  - On arm64 the typed function-pointer cast around objc_msgSend is
+    mandatory: the variadic ABI differs from the named-args ABI for
+    register vs. stack argument placement.
+  - Sending to a nil receiver is defined behaviour in Objective-C and
+    returns without effect, so guarding `alert != NULL` is optional.

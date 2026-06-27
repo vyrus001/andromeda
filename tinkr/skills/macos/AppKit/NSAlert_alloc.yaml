@@ -1,0 +1,51 @@
+name: NSAlert_alloc
+platform: macos
+lib: AppKit
+class: NSAlert
+description: |
+  Allocate an uninitialized NSAlert instance. Equivalent to
+  [NSAlert alloc]. The returned object is NOT autoreleased and is
+  uninitialized — chain with init (or another initializer) before use.
+
+lowering: objc_msgsend
+
+requires:
+  - macos/libobjc/objc_getClass
+  - macos/libobjc/sel_registerName
+  - macos/libobjc/objc_msgSend
+
+class_name: NSAlert
+selector: "alloc"
+receiver_kind: class
+
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "NULL on allocation failure (rare)"
+  params: []
+
+helper: |
+  static void *NSAlert_alloc(struct macos_libobjc *o) {
+      void *cls = o->objc_getClass("NSAlert");
+      void *sel = o->sel_registerName("alloc");
+      typedef void *(*msg_t)(void *, void *);
+      return ((msg_t)o->objc_msgSend)(cls, sel);
+  }
+
+example: |
+  void *raw   = NSAlert_alloc(s->libobjc);
+  void *alert = NSAlert_init(s->libobjc, raw);   /* chain with init */
+
+notes: |
+  - NSAlert lives in AppKit; ensure the AppKit framework is loaded
+    (the loader's libobjc/AppKit seed setup pulls it in via dlopen
+    or the binary's LC_LOAD_DYLIB chain).
+  - The returned object has retain count 1 and is NOT autoreleased.
+    Pair with release (or transfer ownership) when done, unless the
+    blob's lifetime is short enough that leakage is acceptable.
+  - `alloc` returns an uninitialized object — invoking any method
+    other than an initializer on it is undefined. Always follow with
+    init: typical pattern is `[[NSAlert alloc] init]`.
+  - As with all objc_msgsend skills, the typed cast in the helper
+    (`msg_t`) is required on arm64 so the named-arg ABI is used
+    instead of the variadic one.

@@ -1,0 +1,61 @@
+name: recv
+platform: windows
+lib: ws2_32
+description: |
+  Receive data from a connected socket (or a bound connectionless socket).
+  Blocks by default until at least one byte arrives, the peer performs an
+  orderly shutdown, or an error occurs. WSAStartup must have been called
+  successfully before any ws2_32 socket call in the process.
+
+lowering: indirect_call
+
+seed:
+  header: windows_ws2_32
+  field: recv
+  access: "s->ws2_32->recv"
+
+# MSDN typed names translated to portable C:
+#   SOCKET = UINT_PTR (pointer-sized unsigned); use `void *` so it
+#                     stays correct on both Win32 and Win64.
+#   char *  -> char *   (buffer is byte-oriented despite the type)
+#   int     -> int
+signature:
+  return:
+    c_type: int
+    on_failure: "SOCKET_ERROR (-1); call WSAGetLastError() for code. 0 = peer closed (orderly shutdown)"
+  params:
+    - { name: s,     c_type: "void *" }
+    - { name: buf,   c_type: "char *" }
+    - { name: len,   c_type: int }
+    - { name: flags, c_type: int }
+
+example: |
+  char buffer[1024];
+  int n = s->ws2_32->recv(sock, buffer, (int)sizeof(buffer), 0);
+  if (n > 0)        { /* n bytes received into buffer */ }
+  else if (n == 0)  { /* connection closed by peer */ }
+  else              { /* error: s->ws2_32->WSAGetLastError() */ }
+
+notes: |
+  - Return value semantics differ from POSIX read(2): 0 means the peer
+    performed an orderly shutdown, NOT end-of-file on a regular fd.
+    SOCKET_ERROR (-1) is the failure indicator; the actual error code
+    comes from WSAGetLastError(), not GetLastError() (they happen to
+    share storage but the documented API is WSAGetLastError).
+  - Common WSA error codes: WSAEWOULDBLOCK=10035 (non-blocking socket
+    with no data), WSAECONNRESET=10054 (peer reset), WSAETIMEDOUT=10060,
+    WSAENOTCONN=10057, WSAESHUTDOWN=10058.
+  - Common `flags`: 0 (normal), MSG_PEEK=0x2 (look but don't consume),
+    MSG_OOB=0x1 (out-of-band), MSG_WAITALL=0x8 (block until `len` bytes
+    received or error/shutdown).
+  - For datagram sockets (SOCK_DGRAM) the call returns one whole
+    datagram per invocation; if `len` is smaller than the datagram, the
+    excess is discarded and recv returns WSAEMSGSIZE (10040).
+  - SOCKET is UINT_PTR on Windows (pointer-sized). Modelling it as
+    `void *` keeps the seed entry ABI-correct on x86 and x64; cast at
+    call sites if your code stores socket handles in another integer
+    type.
+  - Win64 ABI: rcx, rdx, r8, r9 + 32-byte shadow space. Clang handles
+    this automatically when --target=x86_64-pc-windows-*.
+  - INVALID_SOCKET is (void *)~0 (i.e. (UINT_PTR)-1), not NULL — check
+    socket creation results against that sentinel, not zero.

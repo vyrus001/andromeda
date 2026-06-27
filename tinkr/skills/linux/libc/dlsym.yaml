@@ -1,0 +1,49 @@
+name: dlsym
+platform: linux
+lib: libc
+description: |
+  Resolve a symbol by name within a shared object handle returned by
+  dlopen (or one of the special pseudo-handles RTLD_DEFAULT / RTLD_NEXT).
+  Returns the address of the symbol on success, suitable for casting to
+  a function pointer or data pointer.
+
+lowering: indirect_call
+
+seed:
+  header: linux_libc
+  field: dlsym
+  access: "s->libc->dlsym"
+
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "returns NULL; call dlerror() for a human-readable reason"
+  params:
+    - { name: handle, c_type: "void *" }
+    - { name: symbol, c_type: "const char *" }
+
+example: |
+  /* Resolve printf from the already-loaded libc. */
+  void *p = s->libc->dlsym(/* RTLD_DEFAULT */ (void *)0, "printf");
+  if (p) {
+      typedef int (*printf_t)(const char *, ...);
+      ((printf_t)p)("hi from %s\n", "dlsym");
+  }
+
+notes: |
+  - Special handles (Linux/glibc):
+      RTLD_DEFAULT = (void *)0  — search all loaded objects in default order.
+      RTLD_NEXT    = (void *)-1 — search objects loaded *after* the caller's.
+    Note: on some libc variants these are macros expanding to different
+    sentinel values; the glibc values are 0 and -1 respectively.
+  - A NULL return is ambiguous (the symbol might legitimately be NULL).
+    Disambiguate by calling dlerror() before and after; if the post-call
+    dlerror() returns non-NULL, the lookup failed.
+  - dlsym lives in libdl on older glibc (<2.34) and in libc on newer
+    glibc. The loader should populate s->libc->dlsym from whichever
+    object actually exports it; the seed entry hides this.
+  - Cast the returned `void *` to the correct function-pointer type
+    before calling. Calling through a wrongly-typed pointer is UB and
+    will manifest as ABI mismatches (varargs, struct returns, etc.).
+  - `symbol` is a plain C identifier with no leading underscore on Linux
+    (unlike macOS, which historically prefixed C symbols with `_`).

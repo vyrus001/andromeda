@@ -1,0 +1,48 @@
+name: dlopen
+platform: macos
+lib: libSystem
+description: |
+  Load a dynamic library (Mach-O dylib or bundle) into the current
+  process and return an opaque handle suitable for dlsym. On macOS,
+  dlopen lives in libSystem (which re-exports libdyld); there is no
+  separate libdl as on Linux.
+
+lowering: indirect_call
+
+seed:
+  header: macos_libsystem
+  field: dlopen
+  access: "s->libsystem->dlopen"
+
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "NULL; call dlerror() for a human-readable message"
+  params:
+    - { name: path,  c_type: "const char *" }
+    - { name: mode,  c_type: int }
+
+example: |
+  /* RTLD_NOW = 2, RTLD_LOCAL = 4 */
+  void *h = s->libsystem->dlopen("/usr/lib/libobjc.A.dylib", 2 | 4);
+  if (!h) { /* s->libsystem->dlerror() */ }
+
+notes: |
+  - macOS `mode` flag values (differ from Linux): RTLD_LAZY=1,
+    RTLD_NOW=2, RTLD_LOCAL=4, RTLD_GLOBAL=8, RTLD_NOLOAD=0x10,
+    RTLD_NODELETE=0x80, RTLD_FIRST=0x100.
+  - `path` semantics: an absolute path loads exactly that file; a
+    leaf name triggers the dyld search (DYLD_LIBRARY_PATH, then the
+    standard fallback paths). NULL returns a handle to the main
+    executable's global symbol scope (useful with dlsym).
+  - macOS dylibs typically have a versioned install name like
+    `/usr/lib/libSystem.B.dylib`. dyld will honor `@rpath/`,
+    `@loader_path/`, and `@executable_path/` prefixes if present.
+  - dlopen is reference-counted; pair each successful call with
+    dlclose if the blob is long-lived. Short-lived blobs can leak
+    the handle — the process tearing down releases it.
+  - Hardened-runtime / library-validation processes reject unsigned
+    or improperly-signed dylibs. Codesign your payload dylibs with
+    the same Team ID, or run without the hardened runtime.
+  - Returned handle is opaque; do NOT dereference. Pass it to
+    s->libsystem->dlsym or s->libsystem->dlclose only.

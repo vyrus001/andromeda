@@ -1,0 +1,54 @@
+name: drain
+platform: macos
+lib: Foundation
+class: NSAutoreleasePool
+description: |
+  Drain an NSAutoreleasePool, sending release to every object that was
+  autoreleased into the pool since it was created. Equivalent to:
+  [pool drain]. After draining, the pool object itself is gone — do
+  not reference it again.
+
+lowering: objc_msgsend
+
+requires:
+  - macos/libobjc/objc_getClass
+  - macos/libobjc/sel_registerName
+  - macos/libobjc/objc_msgSend
+
+class_name: NSAutoreleasePool
+selector: "drain"
+receiver_kind: instance
+
+signature:
+  return:
+    c_type: void
+    on_failure: "no failure mode; void return"
+  params:
+    - { name: pool, c_type: "void *" }   # NSAutoreleasePool *
+
+helper: |
+  static void NSAutoreleasePool_drain(struct macos_libobjc *o,
+                                      void *pool) {
+      void *sel = o->sel_registerName("drain");
+      typedef void (*msg_t)(void *, void *);
+      ((msg_t)o->objc_msgSend)(pool, sel);
+  }
+
+example: |
+  /* pool was created earlier via [[NSAutoreleasePool alloc] init]. */
+  NSAutoreleasePool_drain(s->libobjc, pool);
+  /* `pool` is now dangling — do not reuse. */
+
+notes: |
+  - Instance method: receiver is the pool object itself, not the class.
+    No objc_getClass call is needed at the drain site (the class was
+    needed earlier to alloc the pool).
+  - Under garbage collection (long-deprecated on macOS), `drain` triggers
+    a GC hint instead of releasing; under ARC and MRC (the only modes
+    that matter today) it behaves as `release` plus pool teardown.
+  - Prefer @autoreleasepool blocks in regular Objective-C code; in a
+    tinkr blob you typically construct a pool manually around a burst
+    of Cocoa calls and drain it before returning.
+  - arm64 ABI quirk: cast objc_msgSend to a typed, non-variadic function
+    pointer (as the helper does) so named-arg register passing is used
+    instead of variadic stack passing.

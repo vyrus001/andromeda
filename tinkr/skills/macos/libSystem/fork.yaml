@@ -1,0 +1,53 @@
+name: fork
+platform: macos
+lib: libSystem
+description: |
+  Create a new process by duplicating the calling process. The child is
+  a near-identical copy of the parent (separate address space via COW,
+  copied file descriptors, copied signal handlers). On success, fork
+  returns the child PID in the parent and 0 in the child; on failure it
+  returns -1 in the parent only.
+
+lowering: indirect_call
+
+seed:
+  header: macos_libsystem
+  field: fork
+  access: "s->libsystem->fork"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1, errno set"
+  params: []
+
+example: |
+  int pid = s->libsystem->fork();
+  if (pid < 0) {
+      /* errno set: EAGAIN (resource limit) or ENOMEM */
+  } else if (pid == 0) {
+      /* child: pid is 0 here */
+  } else {
+      /* parent: pid is the child's process ID */
+  }
+
+notes: |
+  - POSIX type is `pid_t` (signed 32-bit on macOS); we expose it as
+    plain `int` to keep seeds.h free of <sys/types.h>.
+  - macOS fork() is heavily discouraged by Apple in processes that have
+    already used CoreFoundation, Cocoa, Dispatch (GCD), or Objective-C
+    runtime initialization — the child must call exec*() promptly or
+    risk deadlocks and undefined behaviour from frameworks that registered
+    pthread_atfork handlers expecting an exec.
+  - For a blob that needs to spawn-and-exec, prefer posix_spawn (single
+    syscall, no atfork hazards). Use fork only when you genuinely need
+    the child to continue running blob code without exec.
+  - After fork the child inherits: file descriptors (with refcount bump),
+    signal dispositions, working directory, umask, resource limits. It
+    does NOT inherit: pending signals, file locks, timers, async I/O ops.
+  - errno values: EAGAIN (RLIMIT_NPROC or system-wide proc table full),
+    ENOMEM (insufficient swap space for new process structures).
+  - The seed entry typically points to libSystem's `fork`, which under
+    the hood invokes the BSD fork syscall and runs registered
+    pthread_atfork handlers. A raw syscall fork bypasses those handlers
+    and is even more dangerous on macOS — stick with the libSystem path.

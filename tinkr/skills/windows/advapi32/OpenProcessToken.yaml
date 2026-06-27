@@ -1,0 +1,54 @@
+name: OpenProcessToken
+platform: windows
+lib: advapi32
+description: |
+  Open the access token associated with a process. The returned token
+  handle can be used to query or modify the process's security context
+  (e.g. enabling privileges like SeDebugPrivilege, or impersonating).
+
+lowering: indirect_call
+
+seed:
+  header: windows_advapi32
+  field: OpenProcessToken
+  access: "s->advapi32->OpenProcessToken"
+
+# MSDN typed names translated to portable C:
+#   HANDLE   -> void *
+#   DWORD    -> unsigned int
+#   PHANDLE  -> void **
+#   BOOL     -> int (0 = FALSE/failure, nonzero = TRUE/success)
+signature:
+  return:
+    c_type: int
+    on_failure: "returns 0 (FALSE); call GetLastError() for code"
+  params:
+    - { name: ProcessHandle, c_type: "void *" }
+    - { name: DesiredAccess, c_type: "unsigned int" }
+    - { name: TokenHandle,   c_type: "void **" }
+
+example: |
+  void *token = NULL;
+  /* (HANDLE)-1 == current process pseudo-handle from GetCurrentProcess().
+     TOKEN_ADJUST_PRIVILEGES = 0x0020, TOKEN_QUERY = 0x0008 */
+  int ok = s->advapi32->OpenProcessToken((void *)-1, 0x0020 | 0x0008, &token);
+  if (ok) {
+      /* ... use token, then s->kernel32->CloseHandle(token) ... */
+  }
+
+notes: |
+  - ProcessHandle must have PROCESS_QUERY_INFORMATION (or
+    PROCESS_QUERY_LIMITED_INFORMATION on Vista+) access. The current
+    process pseudo-handle (void*)-1 always satisfies this.
+  - Common DesiredAccess flags: TOKEN_QUERY=0x0008,
+    TOKEN_ADJUST_PRIVILEGES=0x0020, TOKEN_ADJUST_GROUPS=0x0040,
+    TOKEN_DUPLICATE=0x0002, TOKEN_IMPERSONATE=0x0004,
+    TOKEN_ALL_ACCESS=0xF01FF.
+  - The returned handle in *TokenHandle must be closed with
+    kernel32!CloseHandle when no longer needed.
+  - Win64 ABI: ProcessHandle in RCX, DesiredAccess in RDX, TokenHandle
+    in R8; 32-byte shadow space reserved by Clang when targeting
+    x86_64-pc-windows-*.
+  - On failure, *TokenHandle is left unmodified; do not close it.
+  - Typical follow-up calls: LookupPrivilegeValueW + AdjustTokenPrivileges
+    to enable SeDebugPrivilege; GetTokenInformation to inspect SIDs.

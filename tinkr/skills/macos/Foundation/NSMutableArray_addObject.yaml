@@ -1,0 +1,54 @@
+name: addObject
+platform: macos
+lib: Foundation
+class: NSMutableArray
+description: |
+  Append an object to the end of an NSMutableArray. Equivalent to:
+  [array addObject:obj]. The receiver retains the object, so the
+  caller need not hold a strong reference for the array's sake.
+
+lowering: objc_msgsend
+
+requires:
+  - macos/libobjc/objc_getClass
+  - macos/libobjc/sel_registerName
+  - macos/libobjc/objc_msgSend
+
+class_name: NSMutableArray
+selector: "addObject:"
+receiver_kind: instance
+
+signature:
+  return:
+    c_type: void
+    on_failure: "raises NSInvalidArgumentException if obj == nil"
+  params:
+    - { name: array, c_type: "void *" }
+    - { name: obj,   c_type: "void *" }
+
+helper: |
+  static void NSMutableArray_addObject(struct macos_libobjc *o,
+                                       void *array, void *obj) {
+      void *sel = o->sel_registerName("addObject:");
+      typedef void (*msg_t)(void *, void *, void *);
+      ((msg_t)o->objc_msgSend)(array, sel, obj);
+  }
+
+example: |
+  /* Assume `arr` is an existing NSMutableArray * and `str` is an NSString *. */
+  NSMutableArray_addObject(s->libobjc, arr, str);
+
+notes: |
+  - This is an instance method: the receiver is the NSMutableArray
+    instance itself, not the NSMutableArray class.
+  - Passing a nil `obj` raises NSInvalidArgumentException at runtime,
+    which on macOS terminates the process unless caught by an
+    @try/@catch in the surrounding Cocoa context.
+  - The array retains `obj` (incrementing its refcount under MRC, or
+    holding a strong reference under ARC); it is released when removed
+    from the array or when the array is deallocated.
+  - Apple Silicon (arm64) ABI quirk: objc_msgSend MUST be invoked via
+    a typed non-variadic function pointer with the actual arg count.
+    The helper's `msg_t` typedef enforces this.
+  - To construct a fresh mutable array first, use NSMutableArray.array
+    or +[NSMutableArray arrayWithCapacity:].

@@ -1,0 +1,48 @@
+name: closesocket
+platform: windows
+lib: ws2_32
+description: |
+  Close a socket handle obtained from socket(), WSASocket(), accept(),
+  etc. Releases the socket descriptor and, if this was the last
+  reference, tears down the underlying connection. Pending blocking
+  calls on the socket from other threads will fail.
+
+lowering: indirect_call
+
+seed:
+  header: windows_ws2_32
+  field: closesocket
+  access: "s->ws2_32->closesocket"
+
+# Winsock typed names translated to plain C:
+#   SOCKET -> void *   (UINT_PTR on Windows; opaque kernel handle)
+#   int    -> int      (0 on success, SOCKET_ERROR == -1 on failure)
+signature:
+  return:
+    c_type: int
+    on_failure: "returns SOCKET_ERROR (-1); call WSAGetLastError() for code"
+  params:
+    - { name: s, c_type: "void *" }
+
+example: |
+  int rc = s->ws2_32->closesocket(sock);
+  if (rc != 0) { /* WSAGetLastError() for details */ }
+
+notes: |
+  - Winsock must be initialized via WSAStartup before any socket calls;
+    closesocket itself does not require a prior WSAStartup for the
+    calling thread but the handle had to come from a Winsock API.
+  - Default behavior honors the socket's SO_LINGER option: with linger
+    disabled (the default), closesocket returns immediately and the
+    stack drains buffered data in the background ("graceful close").
+    With SO_LINGER enabled and non-zero timeout, the call blocks until
+    data is sent or the timer expires.
+  - To force an abortive close (RST instead of FIN), set SO_LINGER with
+    l_onoff=1 and l_linger=0 via setsockopt before calling closesocket.
+  - Common failure codes (WSAGetLastError): WSANOTINITIALISED (10093),
+    WSAENOTSOCK (10038, not a valid socket), WSAEINPROGRESS (10036),
+    WSAEINTR (10004, cancelled by WSACancelBlockingCall).
+  - The SOCKET type is an opaque handle, not a small int as on POSIX.
+    INVALID_SOCKET is (void *)(~(uintptr_t)0); do not pass it here.
+  - After a successful closesocket the handle value MUST NOT be reused;
+    subsequent calls referencing it return WSAENOTSOCK.

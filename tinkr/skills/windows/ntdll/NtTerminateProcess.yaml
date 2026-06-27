@@ -1,0 +1,45 @@
+name: NtTerminateProcess
+platform: windows
+lib: ntdll
+description: |
+  Native API to terminate a process. Lower-level counterpart to
+  kernel32's TerminateProcess / ExitProcess. Commonly used by blobs
+  that want to exit cleanly without depending on the CRT or kernel32
+  exit paths.
+
+lowering: indirect_call
+
+seed:
+  header: windows_ntdll
+  field: NtTerminateProcess
+  access: "s->ntdll->NtTerminateProcess"
+
+# NTSTATUS = LONG (signed 32-bit). 0 = STATUS_SUCCESS.
+signature:
+  return:
+    c_type: int
+    on_failure: "NTSTATUS != 0 indicates failure"
+  params:
+    - { name: ProcessHandle, c_type: "void *" }
+    - { name: ExitStatus,    c_type: int }
+
+example: |
+  /* Terminate the current process with exit code 0.
+     (HANDLE)-1 is the current-process pseudo-handle. */
+  s->ntdll->NtTerminateProcess((void *)-1, 0);
+
+notes: |
+  - ProcessHandle (void*)-1 is the current-process pseudo-handle; this
+    is the standard way for a blob to self-exit via the Native API.
+  - When terminating the *current* process, the call does not return —
+    the thread (and process) is torn down before the syscall returns
+    to user mode. Treat the return value as unreachable in that path.
+  - When terminating a *different* process, the handle must have been
+    opened with PROCESS_TERMINATE (0x0001) access rights.
+  - ExitStatus is an NTSTATUS-shaped value but is reported to waiters
+    as the process exit code; any 32-bit integer is acceptable.
+  - Win64 ABI: args in RCX, RDX; 32-byte shadow space reserved by the
+    caller. Clang emits this correctly when --target=x86_64-pc-windows-*.
+  - Passing (HANDLE)0 (NULL) terminates *all threads* of the current
+    process except the caller — a rarely-used quirk; prefer (HANDLE)-1
+    for a full exit.

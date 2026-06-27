@@ -1,0 +1,112 @@
+# Batch v2: macOS Cocoa Foundation coverage + a Mach-trap reference skill.
+#
+# Cocoa: ~20 commonly useful Foundation classes/methods. All `objc_msgsend`
+# lowering. Filename pattern: <Class>_<method>.yaml (matches existing
+# NSString_stringWithUTF8String).
+#
+# Mach traps: one reference skill (task_self_trap). They reuse the
+# `lowering: syscall` schema since the asm is identical to BSD syscalls
+# (`svc #0x80` on arm64, `syscall` on x86_64) — only the trap number
+# encoding differs. Marked experimental: arm64 verified, x86_64 best-effort.
+
+skills:
+  # ────────────────────────────────────────────────────────────────────
+  # macos Foundation — NSString
+  # ────────────────────────────────────────────────────────────────────
+  - { platform: macos, lib: Foundation, function: NSString_alloc, lowering: objc_msgsend,
+      doc_text: "Class method on NSString. Selector: alloc. Receiver: class. Returns id (uninitialized NSString instance, retain count 1). Typically chained with an init... method." }
+
+  - { platform: macos, lib: Foundation, function: NSString_initWithUTF8String, lowering: objc_msgsend,
+      doc_text: "Instance method on NSString. Selector: initWithUTF8String:. Receiver: instance (from alloc). Arg: const char * (null-terminated UTF-8). Returns id (the initialized NSString, or nil)." }
+
+  - { platform: macos, lib: Foundation, function: NSString_length, lowering: objc_msgsend,
+      doc_text: "Instance method on NSString. Selector: length. Returns NSUInteger (= unsigned long, the number of UTF-16 code units in the string)." }
+
+  - { platform: macos, lib: Foundation, function: NSString_dataUsingEncoding, lowering: objc_msgsend,
+      doc_text: "Instance method on NSString. Selector: dataUsingEncoding:. Arg: NSStringEncoding (= unsigned long; NSUTF8StringEncoding=4). Returns NSData * (autoreleased)." }
+
+  # ────────────────────────────────────────────────────────────────────
+  # macos Foundation — NSData
+  # ────────────────────────────────────────────────────────────────────
+  - { platform: macos, lib: Foundation, function: NSData_dataWithBytes, lowering: objc_msgsend,
+      doc_text: "Class method on NSData. Selector: dataWithBytes:length:. Receiver: class. Args: const void *bytes, NSUInteger length. Returns NSData * (autoreleased copy of the bytes)." }
+
+  - { platform: macos, lib: Foundation, function: NSData_bytes, lowering: objc_msgsend,
+      doc_text: "Instance method on NSData. Selector: bytes. Returns const void * — pointer to the data's underlying bytes (owned by NSData; do NOT free)." }
+
+  - { platform: macos, lib: Foundation, function: NSData_length, lowering: objc_msgsend,
+      doc_text: "Instance method on NSData. Selector: length. Returns NSUInteger (number of bytes)." }
+
+  # ────────────────────────────────────────────────────────────────────
+  # macos Foundation — NSURL
+  # ────────────────────────────────────────────────────────────────────
+  - { platform: macos, lib: Foundation, function: NSURL_URLWithString, lowering: objc_msgsend,
+      doc_text: "Class method on NSURL. Selector: URLWithString:. Receiver: class. Arg: NSString *. Returns NSURL * (autoreleased) or nil if the string isn't a valid URL." }
+
+  - { platform: macos, lib: Foundation, function: NSURL_host, lowering: objc_msgsend,
+      doc_text: "Instance method on NSURL. Selector: host. Returns NSString * (the host component, or nil)." }
+
+  # ────────────────────────────────────────────────────────────────────
+  # macos Foundation — NSFileManager
+  # ────────────────────────────────────────────────────────────────────
+  - { platform: macos, lib: Foundation, function: NSFileManager_defaultManager, lowering: objc_msgsend,
+      doc_text: "Class method on NSFileManager. Selector: defaultManager. Receiver: class. Returns NSFileManager * (singleton; do NOT release)." }
+
+  - { platform: macos, lib: Foundation, function: NSFileManager_fileExistsAtPath, lowering: objc_msgsend,
+      doc_text: "Instance method on NSFileManager. Selector: fileExistsAtPath:. Arg: NSString * path. Returns BOOL (= signed char on macOS; 0 = doesn't exist, nonzero = exists)." }
+
+  - { platform: macos, lib: Foundation, function: NSFileManager_removeItemAtPath_error, lowering: objc_msgsend,
+      doc_text: "Instance method on NSFileManager. Selector: removeItemAtPath:error:. Args: NSString *path, NSError **error (pass NULL to ignore). Returns BOOL." }
+
+  # ────────────────────────────────────────────────────────────────────
+  # macos Foundation — NSMutableArray
+  # ────────────────────────────────────────────────────────────────────
+  - { platform: macos, lib: Foundation, function: NSMutableArray_array, lowering: objc_msgsend,
+      doc_text: "Class method on NSMutableArray. Selector: array. Receiver: class. Returns NSMutableArray * (autoreleased, empty)." }
+
+  - { platform: macos, lib: Foundation, function: NSMutableArray_addObject, lowering: objc_msgsend,
+      doc_text: "Instance method on NSMutableArray. Selector: addObject:. Arg: id (object to append). Void return. The receiver retains the object." }
+
+  - { platform: macos, lib: Foundation, function: NSMutableArray_count, lowering: objc_msgsend,
+      doc_text: "Instance method on NSArray (inherited by NSMutableArray). Selector: count. Returns NSUInteger." }
+
+  # ────────────────────────────────────────────────────────────────────
+  # macos Foundation — NSDate / NSProcessInfo / NSAutoreleasePool
+  # ────────────────────────────────────────────────────────────────────
+  - { platform: macos, lib: Foundation, function: NSDate_date, lowering: objc_msgsend,
+      doc_text: "Class method on NSDate. Selector: date. Receiver: class. Returns NSDate * (autoreleased, current time)." }
+
+  - { platform: macos, lib: Foundation, function: NSDate_timeIntervalSince1970, lowering: objc_msgsend,
+      doc_text: "Instance method on NSDate. Selector: timeIntervalSince1970. Returns NSTimeInterval (= double) seconds since UNIX epoch." }
+
+  - { platform: macos, lib: Foundation, function: NSProcessInfo_processInfo, lowering: objc_msgsend,
+      doc_text: "Class method on NSProcessInfo. Selector: processInfo. Receiver: class. Returns NSProcessInfo * (singleton)." }
+
+  - { platform: macos, lib: Foundation, function: NSAutoreleasePool_alloc, lowering: objc_msgsend,
+      doc_text: "Class method on NSAutoreleasePool. Selector: alloc. Returns NSAutoreleasePool * (uninitialized). Chain with init." }
+
+  - { platform: macos, lib: Foundation, function: NSAutoreleasePool_drain, lowering: objc_msgsend,
+      doc_text: "Instance method on NSAutoreleasePool. Selector: drain. Void return. Drains the pool, releasing all objects added to it via autorelease." }
+
+  # ────────────────────────────────────────────────────────────────────
+  # macOS Mach traps (reference)
+  # ────────────────────────────────────────────────────────────────────
+  - platform: macos
+    lib: mach-trap
+    function: task_self_trap
+    lowering: syscall
+    doc_text: |
+      Mach trap from XNU kernel. Returns the task port for the current process
+      (mach_task_self() is the libSystem-cached form of this).
+
+      Trap number: 28 (decimal).
+
+      ABI:
+        - arm64 macOS: trap number in x16 as NEGATIVE value (-28); `svc #0x80`;
+          return in x0 (mach_port_name_t = uint32_t).
+        - x86_64 macOS: rax = SYSCALL_CONSTRUCT_MACH(28) = (0x1000000 | (-(28) & 0xFFFFFF))
+          = 0x1FFFFE4 -- Mach class 1 in bits 24-31, two's-complement -28 in lower 24 bits.
+          `syscall` instruction; return in rax. CONFIRM against XNU source before
+          production use -- this skill is a reference, not a tested helper.
+
+      No arguments.

@@ -1,0 +1,44 @@
+name: CFShow
+platform: macos
+lib: CoreFoundation
+description: |
+  Print the description of a Core Foundation object to stderr. Equivalent
+  to `[obj description]` followed by an fprintf to stderr, but without
+  needing a format string. Handy as a debugging primitive when you have
+  a CFTypeRef (or any toll-free-bridged NSObject) and want to inspect
+  it without invoking the NSLog/printf family.
+
+lowering: indirect_call
+
+seed:
+  header: macos_corefoundation
+  field: CFShow
+  access: "s->corefoundation->CFShow"
+
+# CFTypeRef is `const void *` in CoreFoundation headers; any CF* or
+# toll-free-bridged NSObject (NSString, NSArray, NSDictionary, NSNumber,
+# ...) can be passed directly.
+signature:
+  return:
+    c_type: void
+  params:
+    - { name: cf, c_type: "const void *" }
+
+example: |
+  /* Show an NSString built via Foundation. */
+  void *str = NSString_stringWithUTF8String(s->libobjc, "hello");
+  s->corefoundation->CFShow(str);
+
+notes: |
+  - Output goes to stderr (fd 2), not stdout. Redirect accordingly when
+    capturing blob output.
+  - Appends a newline after the description; no need to add one yourself.
+  - Safe to pass NULL: CFShow prints "(null)" rather than crashing.
+  - Accepts any toll-free-bridged NSObject because NSObjects and CF
+    types share the same isa-based dispatch on macOS. NSString *,
+    NSArray *, etc. can be passed without a cast through `void *`.
+  - Unlike NSLog, CFShow takes no format string, so it sidesteps the
+    arm64 variadic-ABI quirks that force NSLog's seed entry to be opaque.
+    The seed entry here can be a properly typed function pointer.
+  - MSDN-style typed name: `CFTypeRef` (== `const void *`); return is
+    `void`.

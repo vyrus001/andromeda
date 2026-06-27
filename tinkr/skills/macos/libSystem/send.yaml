@@ -1,0 +1,43 @@
+name: send
+platform: macos
+lib: libSystem
+description: |
+  Send data on a connected socket via libSystem. Equivalent to write(2)
+  for sockets but accepts a flags argument controlling delivery
+  semantics (e.g., MSG_DONTWAIT, MSG_NOSIGNAL-ish behaviour via
+  SO_NOSIGPIPE, MSG_OOB).
+
+lowering: indirect_call
+
+seed:
+  header: macos_libsystem
+  field: send
+  access: "s->libsystem->send"
+
+signature:
+  return:
+    c_type: long
+    on_failure: "returns -1, errno set"
+  params:
+    - { name: sockfd, c_type: int }
+    - { name: buf,    c_type: "const void *" }
+    - { name: len,    c_type: size_t }
+    - { name: flags,  c_type: int }
+
+example: |
+  long n = s->libsystem->send(fd, msg, msg_len, 0);
+  if (n < 0) { /* errno set */ }
+
+notes: |
+  - Return type is `ssize_t` per POSIX; expressed as `long` here since
+    seeds.h avoids <sys/types.h>. Matches LP64 macOS ABI.
+  - Common flags on macOS: MSG_OOB=0x1, MSG_DONTROUTE=0x4, MSG_DONTWAIT=0x80,
+    MSG_EOR=0x8, MSG_EOF=0x100. macOS does NOT support Linux's MSG_NOSIGNAL;
+    to suppress SIGPIPE on a dead peer, set SO_NOSIGPIPE on the socket
+    (setsockopt) or use sendmsg with MSG_NOSIGNAL on recent macOS (11+).
+  - Partial sends are legal on stream sockets; loop until `len` bytes
+    have been sent if you need all-or-nothing semantics.
+  - The socket must be in the connected state (connect() or accept()).
+    For unconnected datagram sockets, use sendto().
+  - On EPIPE the process receives SIGPIPE by default; install SIG_IGN
+    or use SO_NOSIGPIPE to convert this into a plain -1/EPIPE return.

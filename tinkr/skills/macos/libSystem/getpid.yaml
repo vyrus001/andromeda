@@ -1,0 +1,31 @@
+name: getpid
+platform: macos
+lib: libSystem
+description: |
+  Return the process ID of the calling process via libSystem. This call
+  cannot fail and does not touch errno.
+
+lowering: indirect_call
+
+seed:
+  header: macos_libsystem
+  field: getpid
+  access: "s->libsystem->getpid"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "cannot fail"
+  params: []
+
+example: |
+  int pid = s->libsystem->getpid();
+
+notes: |
+  - POSIX typed name: pid_t getpid(void). pid_t is a 32-bit signed int
+    on macOS, so plain `int` is the portable C-type for seeds.h.
+  - Never fails: no error return, errno untouched.
+  - libSystem caches the PID after the first call; repeated calls are
+    cheap and do not enter the kernel after the cache is warm.
+  - For a syscall-only variant (no libSystem dependency) see
+    macos/bsd-syscall/getpid (SYS_getpid = 20).

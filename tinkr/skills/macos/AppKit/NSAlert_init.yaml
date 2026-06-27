@@ -1,0 +1,59 @@
+name: init
+platform: macos
+lib: AppKit
+class: NSAlert
+description: |
+  Initialize a freshly allocated NSAlert. Standard Objective-C designated
+  initializer pattern: pair with [NSAlert alloc] to obtain a usable
+  NSAlert instance. Returns the initialized alert (same pointer as the
+  receiver on success), or nil if initialization failed.
+
+lowering: objc_msgsend
+
+requires:
+  - macos/libobjc/objc_getClass
+  - macos/libobjc/sel_registerName
+  - macos/libobjc/objc_msgSend
+
+class_name: NSAlert
+selector: "init"
+receiver_kind: instance
+
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "nil (NULL) if initialization fails"
+  params:
+    - { name: receiver, c_type: "void *" }
+
+helper: |
+  static void *NSAlert_init(struct macos_libobjc *o, void *receiver) {
+      void *sel = o->sel_registerName("init");
+      typedef void *(*msg_t)(void *, void *);
+      return ((msg_t)o->objc_msgSend)(receiver, sel);
+  }
+
+example: |
+  /* Pair with NSAlert alloc to get a usable instance. */
+  void *cls   = s->libobjc->objc_getClass("NSAlert");
+  void *sel_a = s->libobjc->sel_registerName("alloc");
+  typedef void *(*alloc_t)(void *, void *);
+  void *raw   = ((alloc_t)s->libobjc->objc_msgSend)(cls, sel_a);
+  void *alert = NSAlert_init(s->libobjc, raw);
+
+notes: |
+  - NSAlert lives in AppKit; the framework must be loaded into the
+    process for objc_getClass("NSAlert") to resolve. GUI-less hosts
+    (pure CLI without AppKit linked) will return NULL from the class
+    lookup.
+  - Idiomatic Objective-C pairs alloc+init: [[NSAlert alloc] init].
+    The returned pointer from init is the canonical instance pointer;
+    do not keep using the alloc result independently.
+  - init is NOT autoreleased — the resulting NSAlert has retain count 1.
+    Send `release` (or use ARC equivalents) when finished, or wrap
+    creation in an autorelease pool for short-lived blobs.
+  - Apple Silicon (arm64) ABI: objc_msgSend MUST be invoked via a typed
+    function-pointer cast (as the helper does), never as a variadic
+    call, because named-arg and variadic ABIs differ on arm64.
+  - For configured alerts, follow init with setMessageText:, 
+    setInformativeText:, addButtonWithTitle:, then runModal.

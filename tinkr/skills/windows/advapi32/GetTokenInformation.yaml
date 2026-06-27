@@ -1,0 +1,67 @@
+name: GetTokenInformation
+platform: windows
+lib: advapi32
+description: |
+  Retrieve a specified type of information about an access token. The
+  caller supplies a buffer and its size; the kernel writes the requested
+  TOKEN_INFORMATION_CLASS payload into it and reports the number of
+  bytes needed (useful for the standard "call twice" idiom: first to
+  size, second to fill).
+
+lowering: indirect_call
+
+seed:
+  header: windows_advapi32
+  field: GetTokenInformation
+  access: "s->advapi32->GetTokenInformation"
+
+# MSDN typed names translated to plain C:
+#   HANDLE                  -> void *
+#   TOKEN_INFORMATION_CLASS -> int (enum)
+#   LPVOID                  -> void *
+#   DWORD                   -> unsigned int
+#   PDWORD                  -> unsigned int *
+#   BOOL                    -> int (0 = FALSE, nonzero = TRUE)
+signature:
+  return:
+    c_type: int
+    on_failure: "returns 0 (FALSE); call GetLastError() for code"
+  params:
+    - { name: TokenHandle,            c_type: "void *" }
+    - { name: TokenInformationClass,  c_type: int }
+    - { name: TokenInformation,       c_type: "void *" }
+    - { name: TokenInformationLength, c_type: "unsigned int" }
+    - { name: ReturnLength,           c_type: "unsigned int *" }
+
+example: |
+  /* Two-call idiom: first probe the required size, then allocate
+     and fill. TokenElevation = 20; the payload is a single DWORD
+     where nonzero means the token is elevated. */
+  unsigned int needed = 0;
+  unsigned int elevation = 0;
+  /* First call typically fails with ERROR_INSUFFICIENT_BUFFER (122)
+     and sets `needed`; for fixed-size classes like TokenElevation we
+     can skip the probe and pass the buffer directly. */
+  int ok = s->advapi32->GetTokenInformation(
+      hToken, /* TokenElevation */ 20,
+      &elevation, sizeof(elevation), &needed);
+
+notes: |
+  - Win64 ABI: first four args in RCX, RDX, R8, R9, then 32-byte shadow
+    space before stack args. Clang handles this with --target=x86_64-pc-windows-*.
+  - Common TOKEN_INFORMATION_CLASS values: TokenUser=1, TokenGroups=2,
+    TokenPrivileges=3, TokenOwner=4, TokenPrimaryGroup=5, TokenStatistics=10,
+    TokenType=8, TokenImpersonationLevel=9, TokenElevation=20,
+    TokenElevationType=18, TokenIntegrityLevel=25, TokenLinkedToken=19.
+  - Standard "call twice" pattern for variable-size classes: first call
+    with TokenInformationLength=0 fails with GetLastError()==122
+    (ERROR_INSUFFICIENT_BUFFER) and writes the needed size into
+    *ReturnLength; allocate that many bytes and call again.
+  - The token handle must have TOKEN_QUERY access. Get one via
+    OpenProcessToken (advapi32) on GetCurrentProcess() ((HANDLE)-1).
+  - For TokenIntegrityLevel and similar classes the buffer receives a
+    variable-length structure containing a SID; do not assume a fixed
+    layout — read fields through the documented struct pointers.
+  - ReturnLength must NOT be NULL even when you "know" the size; some
+    Windows versions fault otherwise. Pass the address of a throwaway
+    DWORD if you don't care.

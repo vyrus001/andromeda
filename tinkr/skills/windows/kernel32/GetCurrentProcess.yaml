@@ -1,0 +1,44 @@
+name: GetCurrentProcess
+platform: windows
+lib: kernel32
+description: |
+  Return a pseudo-handle for the current process. The pseudo-handle is
+  a special constant ((HANDLE)-1) that the kernel interprets as "the
+  calling process" in any API that takes a process handle. It does not
+  need to be closed and is not a real kernel handle — it simply avoids
+  a syscall round-trip when you need to refer to yourself.
+
+lowering: indirect_call
+
+seed:
+  header: windows_kernel32
+  field: GetCurrentProcess
+  access: "s->kernel32->GetCurrentProcess"
+
+# MSDN typed name:
+#   HANDLE = void *
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "cannot fail; always returns the pseudo-handle (void *)-1"
+  params: []
+
+example: |
+  void *me = s->kernel32->GetCurrentProcess();
+  /* Use `me` anywhere a process HANDLE is required, e.g. as the
+     ProcessHandle argument to NtAllocateVirtualMemory. */
+
+notes: |
+  - The return value is always the constant (HANDLE)-1. Some blobs skip
+    the call entirely and just cast (void *)-1; calling through the
+    seed costs one indirect branch but keeps the IR uniform and avoids
+    embedding magic constants.
+  - The pseudo-handle is process-local. If you need a real handle that
+    can be passed to another process (e.g. via DuplicateHandle), you
+    must duplicate it first; the pseudo-handle is not valid in any
+    other process.
+  - Do NOT call CloseHandle on the return value — it's not a real
+    handle. CloseHandle will fail with ERROR_INVALID_HANDLE.
+  - Win64 ABI: zero args, so no register/shadow-space considerations.
+  - Equivalent ntdll-level helper: NtCurrentProcess() is a macro
+    expanding to (HANDLE)-1; no syscall is involved either way.

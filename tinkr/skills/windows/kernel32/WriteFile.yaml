@@ -1,0 +1,42 @@
+name: WriteFile
+platform: windows
+lib: kernel32
+description: |
+  Write data to a file, pipe, or console handle. The synchronous form
+  (lpOverlapped == NULL) blocks until the I/O completes or fails.
+
+lowering: indirect_call
+
+seed:
+  header: windows_kernel32
+  field: WriteFile
+  access: "s->kernel32->WriteFile"
+
+# MSDN typed names (for reference, not used in seeds.h):
+#   HANDLE = void *, LPCVOID = const void *, DWORD = unsigned int,
+#   LPDWORD = unsigned int *, LPOVERLAPPED = void * (opaque struct),
+#   BOOL = int (0 = fail, nonzero = success).
+signature:
+  return:
+    c_type: int
+    on_failure: "returns 0 (FALSE); call GetLastError() for code"
+  params:
+    - { name: hFile,                 c_type: "void *" }
+    - { name: lpBuffer,              c_type: "const void *" }
+    - { name: nNumberOfBytesToWrite, c_type: "unsigned int" }
+    - { name: lpNumberOfBytesWritten, c_type: "unsigned int *" }
+    - { name: lpOverlapped,          c_type: "void *" }
+
+example: |
+  unsigned int written = 0;
+  int ok = s->kernel32->WriteFile(s->kernel32->GetStdHandle(/* STD_OUTPUT_HANDLE */ (unsigned int)-11),
+                                  msg, msg_len, &written, NULL);
+
+notes: |
+  - Win64 ABI: first four args in RCX, RDX, R8, R9; remaining on stack
+    after a 32-byte shadow space. Clang handles this when --target=x86_64-pc-windows-*.
+  - Console handles (CreateFileA("CONOUT$") or GetStdHandle) accept text
+    in the console's code page; for Unicode use WriteConsoleW.
+  - lpOverlapped=NULL means synchronous; the handle must NOT have been
+    opened with FILE_FLAG_OVERLAPPED.
+  - Stdout/stderr handles come from GetStdHandle(STD_OUTPUT_HANDLE/STD_ERROR_HANDLE).

@@ -1,0 +1,51 @@
+name: defaultManager
+platform: macos
+lib: Foundation
+class: NSFileManager
+description: |
+  Return the shared NSFileManager singleton. Equivalent to:
+  [NSFileManager defaultManager]. The returned object is a process-wide
+  shared instance; callers must not release it.
+
+lowering: objc_msgsend
+
+requires:
+  - macos/libobjc/objc_getClass
+  - macos/libobjc/sel_registerName
+  - macos/libobjc/objc_msgSend
+
+class_name: NSFileManager
+selector: "defaultManager"
+receiver_kind: class
+
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "should not fail in practice; returns nil only under catastrophic runtime conditions"
+  params: []
+
+helper: |
+  static void *NSFileManager_defaultManager(struct macos_libobjc *o) {
+      void *cls = o->objc_getClass("NSFileManager");
+      void *sel = o->sel_registerName("defaultManager");
+      typedef void *(*msg_t)(void *, void *);
+      return ((msg_t)o->objc_msgSend)(cls, sel);
+  }
+
+example: |
+  void *fm = NSFileManager_defaultManager(s->libobjc);
+  /* Use fm as the receiver for further -[NSFileManager ...] calls. */
+
+notes: |
+  - Returns a singleton (NSFileManager *). Do NOT release or autorelease
+    it; its lifetime spans the process.
+  - Cast objc_msgSend to a typed non-variadic function pointer matching
+    the actual arg count (receiver + selector here). On Apple Silicon
+    the variadic ABI differs from the named-args ABI; using the typed
+    cast is required for correctness.
+  - For thread-safety semantics consult Apple's docs: most read-only
+    queries on the shared manager are safe; mutating operations should
+    ideally use a per-thread NSFileManager via `[[NSFileManager alloc] init]`.
+  - Foundation must be loaded into the process for the NSFileManager
+    class lookup to succeed; the loader is responsible for ensuring
+    Foundation.framework (or its umbrella) is linked/dlopened.

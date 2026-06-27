@@ -1,0 +1,27 @@
+name: NtClose
+platform: windows
+lib: ntdll
+description: |
+  Native API counterpart to CloseHandle. Closes a kernel handle.
+
+lowering: indirect_call
+
+seed:
+  header: windows_ntdll
+  field: NtClose
+  access: "s->ntdll->NtClose"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "NTSTATUS != 0 indicates failure"
+  params:
+    - { name: Handle, c_type: "void *" }
+
+example: |
+  s->ntdll->NtClose(hFile);
+
+notes: |
+  - Closing INVALID_HANDLE_VALUE or a pseudo-handle returns an error
+    NTSTATUS (e.g. STATUS_INVALID_HANDLE), unlike CloseHandle which
+    silently no-ops pseudo-handles.

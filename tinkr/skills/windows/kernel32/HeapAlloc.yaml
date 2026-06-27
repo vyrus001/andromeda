@@ -1,0 +1,54 @@
+name: HeapAlloc
+platform: windows
+lib: kernel32
+description: |
+  Allocate a block of memory from a heap. The returned pointer is
+  aligned suitably for any scalar type and remains valid until freed
+  with HeapFree or until the heap is destroyed. Use GetProcessHeap to
+  obtain a handle to the process's default heap, or HeapCreate for a
+  private heap.
+
+lowering: indirect_call
+
+seed:
+  header: windows_kernel32
+  field: HeapAlloc
+  access: "s->kernel32->HeapAlloc"
+
+# MSDN typed names:
+#   HANDLE  -> void *
+#   DWORD   -> unsigned int
+#   SIZE_T  -> size_t
+#   LPVOID  -> void *
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "NULL on failure; GetLastError() is NOT set unless HEAP_GENERATE_EXCEPTIONS is used"
+  params:
+    - { name: hHeap,   c_type: "void *" }
+    - { name: dwFlags, c_type: "unsigned int" }
+    - { name: dwBytes, c_type: "size_t" }
+
+example: |
+  void *heap = s->kernel32->GetProcessHeap();
+  /* HEAP_ZERO_MEMORY = 0x8 */
+  void *buf = s->kernel32->HeapAlloc(heap, 0x8, 4096);
+  if (buf == NULL) { /* allocation failed */ }
+
+notes: |
+  - Common dwFlags: HEAP_ZERO_MEMORY=0x8 (zero-init the block),
+    HEAP_GENERATE_EXCEPTIONS=0x4 (raise SEH on failure instead of
+    returning NULL), HEAP_NO_SERIALIZE=0x1 (skip lock — only safe on
+    private single-threaded heaps).
+  - hHeap must be a handle from GetProcessHeap or HeapCreate; it is
+    NOT a generic kernel handle and cannot be CloseHandle'd.
+  - Free with HeapFree(hHeap, 0, ptr) using the SAME heap handle.
+    Mixing heaps corrupts heap metadata.
+  - Unlike most kernel32 APIs, HeapAlloc does NOT set GetLastError on
+    failure by default — it just returns NULL. Use HEAP_GENERATE_EXCEPTIONS
+    if you need failure diagnostics.
+  - Maximum block size on the default process heap is effectively
+    limited by available address space; on Win64 this is huge, but
+    requests over 0x7FFF_FFFF bytes may fail depending on flags.
+  - Win64 ABI: hHeap in RCX, dwFlags in RDX (zero-extended from 32-bit),
+    dwBytes in R8. Clang handles this when --target=x86_64-pc-windows-*.

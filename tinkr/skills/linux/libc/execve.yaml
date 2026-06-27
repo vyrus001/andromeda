@@ -1,0 +1,51 @@
+name: execve
+platform: linux
+lib: libc
+description: |
+  Replace the current process image with a new program. On success
+  execve does not return; on failure it returns -1 with errno set.
+  The new image inherits the calling process's PID, open file
+  descriptors (unless marked FD_CLOEXEC), and other process attributes.
+
+lowering: indirect_call
+
+seed:
+  header: linux_libc
+  field: execve
+  access: "s->libc->execve"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1, errno set; on success does not return"
+  params:
+    - { name: pathname, c_type: "const char *" }
+    - { name: argv,     c_type: "char *const *" }
+    - { name: envp,     c_type: "char *const *" }
+
+example: |
+  char *argv[] = { "/bin/sh", "-c", "echo hi", NULL };
+  char *envp[] = { "PATH=/usr/bin:/bin", NULL };
+  s->libc->execve("/bin/sh", argv, envp);
+  /* only reached on error */
+
+notes: |
+  - `pathname` must be an absolute or relative path to an executable
+    file; execve does NOT search $PATH. Use execvp / posix_spawnp or
+    do the lookup manually if PATH resolution is needed.
+  - `argv` and `envp` are NULL-terminated arrays of NUL-terminated
+    C strings. argv[0] conventionally holds the program name. envp
+    may be NULL on Linux (treated as empty environment), but passing
+    a valid empty-terminated array is the portable choice.
+  - On success the call does not return — any code after a successful
+    execve is unreachable. The agent should not emit cleanup code
+    after the call on the success path.
+  - The executable must be either a native ELF binary or a script
+    starting with `#!` (interpreter line). Otherwise execve fails
+    with ENOEXEC.
+  - File descriptors without FD_CLOEXEC remain open across the call;
+    signal handlers are reset to default, but signal masks and
+    pending signals are preserved.
+  - Common errnos: ENOENT (path missing), EACCES (not executable),
+    ENOEXEC (bad format), E2BIG (argv/envp too large), ETXTBSY
+    (file open for writing elsewhere).

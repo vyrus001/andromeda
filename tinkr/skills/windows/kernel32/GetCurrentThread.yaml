@@ -1,0 +1,42 @@
+name: GetCurrentThread
+platform: windows
+lib: kernel32
+description: |
+  Return a pseudo-handle for the calling thread. The pseudo-handle is a
+  constant special value ((HANDLE)-2) that is interpreted by the system
+  as "the current thread"; it is not a real handle and does not need to
+  be closed. To get a real, transferable handle to the current thread,
+  duplicate it with DuplicateHandle.
+
+lowering: indirect_call
+
+seed:
+  header: windows_kernel32
+  field: GetCurrentThread
+  access: "s->kernel32->GetCurrentThread"
+
+# MSDN typed names:
+#   HANDLE -> void *
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "does not fail; always returns the pseudo-handle (void*)-2"
+  params: []
+
+example: |
+  void *hThread = s->kernel32->GetCurrentThread();
+  /* Use with thread APIs that accept the current-thread pseudo-handle,
+     e.g. SetThreadPriority, GetThreadContext, SuspendThread (careful!). */
+
+notes: |
+  - The returned value is always the constant pseudo-handle (HANDLE)-2.
+    Some code skips the API call entirely and uses (void *)-2 directly;
+    the API form is preferred for clarity and to keep imports honest.
+  - The pseudo-handle is only valid in the calling thread's context. Do
+    NOT pass it to another thread or process — it would resolve to that
+    thread's "current thread", not the originating one. Use
+    DuplicateHandle to obtain a real, sharable HANDLE.
+  - The pseudo-handle does not need to be closed; CloseHandle on it is a
+    no-op but considered poor form.
+  - Win64 ABI: zero-arg call, return in RAX. Clang handles this when
+    --target=x86_64-pc-windows-*.

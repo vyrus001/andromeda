@@ -1,0 +1,55 @@
+name: send
+platform: windows
+lib: ws2_32
+description: |
+  Send data on a connected socket. Blocks (by default) until the data is
+  queued for transmission by the stack, or fails. For connectionless or
+  unconnected sockets see sendto. Returns the number of bytes actually
+  sent, which may be less than `len` on non-blocking or partial sends.
+
+lowering: indirect_call
+
+seed:
+  header: windows_ws2_32
+  field: send
+  access: "s->ws2_32->send"
+
+# MSDN typed names:
+#   SOCKET  -> uintptr-sized handle; on Win64 it's 64-bit. Use void *
+#              so the seed field stays pointer-width across archs.
+#   int     -> int
+#   char *  -> const char * (Winsock takes a raw byte buffer typed as char*)
+signature:
+  return:
+    c_type: int
+    on_failure: "SOCKET_ERROR (-1); call WSAGetLastError() for code"
+  params:
+    - { name: s,     c_type: "void *" }
+    - { name: buf,   c_type: "const char *" }
+    - { name: len,   c_type: int }
+    - { name: flags, c_type: int }
+
+example: |
+  /* sock is a SOCKET from socket()/WSASocketW(), already connect()ed. */
+  int n = s->ws2_32->send(sock, msg, (int)msg_len, 0);
+  if (n == -1) {
+      /* int err = s->ws2_32->WSAGetLastError(); */
+  }
+
+notes: |
+  - SOCKET is an opaque handle. MSDN types it as UINT_PTR; on Win64 it is
+    64 bits, on Win32 it is 32 bits. We model it as `void *` so the seed
+    field width matches the target pointer width without extra typedefs.
+  - `len` is a signed int — the Winsock API caps a single send at INT_MAX
+    bytes. For larger transfers loop.
+  - Partial sends are legal on stream sockets. The return value is the
+    number of bytes actually handed to the stack; loop until the whole
+    buffer is sent, or use WSASend for scatter/gather.
+  - Common `flags`: 0 (default), MSG_OOB=1 (out-of-band), MSG_DONTROUTE=4,
+    MSG_NOSIGNAL is *not* defined on Windows (sockets don't raise SIGPIPE).
+  - SOCKET_ERROR is the literal -1 cast to int. On failure, retrieve the
+    detailed error via WSAGetLastError() (a separate ws2_32 skill).
+  - Requires Winsock to have been initialised in the process via
+    WSAStartup before any socket call succeeds.
+  - Win64 ABI: first four args in RCX, RDX, R8, R9; clang handles this
+    when --target=x86_64-pc-windows-*.

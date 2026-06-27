@@ -1,0 +1,58 @@
+name: waitpid
+platform: macos
+lib: libSystem
+description: |
+  Wait for state changes in a child process. Blocks (unless WNOHANG is
+  set in `options`) until the specified child terminates, is stopped by
+  a signal, or is continued. On return, `*status` is populated with an
+  encoded status word inspectable via the W* macros (WIFEXITED,
+  WEXITSTATUS, WIFSIGNALED, WTERMSIG, etc.). Resolves at load-time
+  through the seed struct.
+
+lowering: indirect_call
+
+seed:
+  header: macos_libsystem
+  field: waitpid
+  access: "s->libsystem->waitpid"
+
+# Apple typed names (for cross-reference):
+#   pid_t   -> int   (signed 32-bit on macOS)
+#   The status word is a plain `int` populated by the kernel.
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1, errno set; returns 0 if WNOHANG and no child has changed state"
+  params:
+    - { name: pid,     c_type: int }
+    - { name: status,  c_type: "int *" }
+    - { name: options, c_type: int }
+
+example: |
+  int status = 0;
+  int rc = s->libsystem->waitpid(child_pid, &status, 0);
+  if (rc < 0) {
+      /* errno set; ECHILD = no such child, EINTR = interrupted */
+  } else if (/* WIFEXITED */ (status & 0x7f) == 0) {
+      int code = (status >> 8) & 0xff;   /* WEXITSTATUS */
+  }
+
+notes: |
+  - `pid` semantics: >0 wait for that specific PID; -1 wait for any
+    child; 0 wait for any child in the caller's process group; <-1
+    wait for any child in process group |pid|.
+  - `options` flags (macOS values): WNOHANG=0x1, WUNTRACED=0x2,
+    WCONTINUED=0x10. With WNOHANG and no eligible child, returns 0
+    immediately rather than blocking.
+  - Status decoding (macOS, same as BSD): low 7 bits = termsig
+    (0 means normal exit), bit 7 = core-dump flag, bits 8-15 =
+    exit code when termsig==0. WIFEXITED(s) is `(s & 0x7f) == 0`;
+    WEXITSTATUS(s) is `(s >> 8) & 0xff`; WIFSIGNALED(s) is the
+    inverse; WTERMSIG(s) is `s & 0x7f`.
+  - Returns -1 with errno=EINTR if a signal interrupts the wait;
+    callers that install signal handlers should retry.
+  - Returns -1 with errno=ECHILD if `pid` does not refer to an
+    existing child of the caller (or if all children have already
+    been reaped).
+  - On macOS, waitpid is a libSystem wrapper over the BSD wait4
+    syscall; the seed entry hides that detail.

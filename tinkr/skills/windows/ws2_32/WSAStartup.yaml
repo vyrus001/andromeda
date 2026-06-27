@@ -1,0 +1,54 @@
+name: WSAStartup
+platform: windows
+lib: ws2_32
+description: |
+  Initiate use of the Winsock DLL by the calling process. Must be called
+  before any other ws2_32 function; pairs with a later WSACleanup. The
+  function fills out a WSADATA struct describing the Winsock
+  implementation that was loaded.
+
+lowering: indirect_call
+
+seed:
+  header: windows_ws2_32
+  field: WSAStartup
+  access: "s->ws2_32->WSAStartup"
+
+# MSDN typed names:
+#   WORD       -> unsigned short
+#   LPWSADATA  -> void *  (opaque ~400-byte struct; layout differs by SDK)
+# Return is int (0 on success, nonzero WSA* error code on failure).
+signature:
+  return:
+    c_type: int
+    on_failure: "returns nonzero WSA error code; WSAGetLastError NOT meaningful here"
+  params:
+    - { name: wVersionRequested, c_type: "unsigned short" }
+    - { name: lpWSAData,         c_type: "void *" }
+
+example: |
+  /* WSADATA is ~400 bytes; reserve generously to be SDK-agnostic. */
+  unsigned char wsadata[512];
+  /* MAKEWORD(2, 2) == 0x0202 — request Winsock 2.2 */
+  int rc = s->ws2_32->WSAStartup(0x0202, wsadata);
+  if (rc != 0) { /* failed; do not call other ws2_32 functions */ }
+
+notes: |
+  - wVersionRequested is MAKEWORD(low, high): low byte = major version,
+    high byte = minor. 0x0202 requests 2.2, which is what every modern
+    Windows ships. 0x0101 (Winsock 1.1) also works and is the historical
+    minimum.
+  - Unlike most Win32 APIs, WSAStartup returns the error code directly;
+    do NOT call WSAGetLastError() to interpret the failure — the return
+    value IS the error (WSASYSNOTREADY=10091, WSAVERNOTSUPPORTED=10092,
+    WSAEINPROGRESS=10036, WSAEPROCLIM=10067, WSAEFAULT=10014).
+  - Each successful WSAStartup must be matched by a WSACleanup. The
+    library maintains a per-process refcount.
+  - lpWSAData is required and must point to writable memory of at least
+    sizeof(WSADATA). The struct is ~400 bytes (398 on x64); a 512-byte
+    buffer is a safe over-allocation that avoids depending on SDK headers.
+  - Win64 ABI: args in RCX (wVersionRequested, zero-extended) and RDX
+    (lpWSAData), plus 32-byte shadow space. Clang handles this when
+    targeting x86_64-pc-windows-*.
+  - Calling any other ws2_32 function (socket, WSASocketW, getaddrinfo,
+    etc.) before a successful WSAStartup yields WSANOTINITIALISED (10093).

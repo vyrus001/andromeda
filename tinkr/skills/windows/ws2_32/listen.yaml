@@ -1,0 +1,48 @@
+name: listen
+platform: windows
+lib: ws2_32
+description: |
+  Place a connection-mode socket into the listening state, ready to
+  accept incoming connections via accept(). The socket must already
+  be bound (bind()) to a local address and port.
+
+lowering: indirect_call
+
+seed:
+  header: windows_ws2_32
+  field: listen
+  access: "s->ws2_32->listen"
+
+# Winsock typed names translated to plain C:
+#   SOCKET  -> void *   (UINT_PTR on Windows; opaque kernel handle)
+#   int     -> int
+signature:
+  return:
+    c_type: int
+    on_failure: "SOCKET_ERROR (-1); call WSAGetLastError() for code"
+  params:
+    - { name: s,       c_type: "void *" }
+    - { name: backlog, c_type: int }
+
+example: |
+  /* sock is a SOCKET returned by socket() and already bind()'d. */
+  int rc = s->ws2_32->listen(sock, /* SOMAXCONN */ 0x7fffffff);
+  if (rc == -1) { /* WSAGetLastError() for details */ }
+
+notes: |
+  - WSAStartup() must have been called previously in the process, and
+    the socket must be of a connection-oriented type (SOCK_STREAM) and
+    bound to a local address with bind() before listen() succeeds.
+  - `backlog` is the maximum length of the pending-connection queue.
+    Pass SOMAXCONN (0x7fffffff on modern Windows) to let the stack
+    pick a reasonable maximum; older docs cite SOMAXCONN=0x80.
+  - Return value: 0 on success, SOCKET_ERROR (-1) on failure. Unlike
+    POSIX, errno is not set — use WSAGetLastError() (also a ws2_32
+    export) to retrieve the error code (e.g., WSAEADDRINUSE=10048,
+    WSAEINVAL=10022 if not bound, WSAENOTSOCK=10038).
+  - Win64 ABI: args in RCX, RDX + 32-byte shadow space on stack. Clang
+    handles this when --target=x86_64-pc-windows-*.
+  - SOCKET is technically UINT_PTR (pointer-sized unsigned), but using
+    `void *` in the seed keeps it ABI-correct on both x86 and x64.
+  - After listen() returns successfully, call accept() in a loop to
+    pull connections off the queue.

@@ -1,0 +1,27 @@
+name: close
+platform: linux
+lib: libc
+description: |
+  Close a file descriptor.
+
+lowering: indirect_call
+
+seed:
+  header: linux_libc
+  field: close
+  access: "s->libc->close"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1, errno set"
+  params:
+    - { name: fd, c_type: int }
+
+example: |
+  s->libc->close(fd);
+
+notes: |
+  - Closing the same fd twice is undefined per POSIX; check return.
+  - Close doesn't guarantee data has reached disk — use fsync/fdatasync
+    if you need durability.

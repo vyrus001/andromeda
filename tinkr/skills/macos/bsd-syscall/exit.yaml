@@ -1,0 +1,54 @@
+name: exit
+platform: macos
+lib: bsd-syscall
+description: |
+  Terminate the calling process with the given status via the BSD-class
+  syscall directly. Skips libSystem's atexit handlers — use the libSystem
+  exit skill if you want full cleanup.
+
+lowering: syscall
+
+signature:
+  return:
+    c_type: long
+    on_failure: "never returns; reaches no code after svc"
+  params:
+    - { name: status, c_type: int }
+
+arch:
+  arm64:
+    syscall_number: 1    # SYS_exit
+    helper: |
+      static long sys_exit(int status) {
+          register long x0  __asm__("x0")  = (long)status;
+          register long x16 __asm__("x16") = 1;   /* SYS_exit */
+          __asm__ volatile (
+              "svc #0x80"
+              : "+r"(x0)
+              : "r"(x16)
+              : "memory"
+          );
+          __builtin_unreachable();
+      }
+  x86_64:
+    syscall_number: 1
+    helper: |
+      static long sys_exit(int status) {
+          __asm__ volatile (
+              "syscall"
+              :
+              : "a"((long)0x2000001), "D"((long)status)
+              : "rcx", "r11", "memory"
+          );
+          __builtin_unreachable();
+      }
+
+example: |
+  sys_exit(0);
+
+notes: |
+  - Never returns. Skips stdio flush, atexit handlers, and DYLD
+    teardown. For full cleanup use macos/libSystem/exit.
+  - In typical blob use, return from `entry()` instead of calling exit.
+    Call exit only if you specifically want to terminate the host
+    process rather than just complete the blob.

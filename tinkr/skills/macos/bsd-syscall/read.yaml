@@ -1,0 +1,62 @@
+name: read
+platform: macos
+lib: bsd-syscall
+description: |
+  Read up to `count` bytes from file descriptor `fd` into `buf` via the
+  BSD-class syscall directly, bypassing libSystem.
+
+lowering: syscall
+
+signature:
+  return:
+    c_type: long
+    on_failure: "negative -errno on error (carry-flag converted); 0 indicates EOF"
+  params:
+    - { name: fd,    c_type: int }
+    - { name: buf,   c_type: "void *" }
+    - { name: count, c_type: "unsigned long" }
+
+arch:
+  arm64:
+    syscall_number: 3    # SYS_read
+    helper: |
+      static long sys_read(int fd, void *buf, unsigned long n) {
+          register long x0  __asm__("x0")  = (long)fd;
+          register long x1  __asm__("x1")  = (long)buf;
+          register long x2  __asm__("x2")  = (long)n;
+          register long x16 __asm__("x16") = 3;   /* SYS_read */
+          __asm__ volatile (
+              "svc #0x80\n\t"
+              "b.cc 1f\n\t"
+              "neg x0, x0\n"
+              "1:"
+              : "+r"(x0)
+              : "r"(x1), "r"(x2), "r"(x16)
+              : "cc", "memory"
+          );
+          return x0;
+      }
+  x86_64:
+    syscall_number: 3
+    helper: |
+      static long sys_read(int fd, void *buf, unsigned long n) {
+          long ret;
+          __asm__ volatile (
+              "syscall\n\t"
+              "jnc 1f\n\t"
+              "negq %%rax\n"
+              "1:"
+              : "=a"(ret)
+              : "0"((long)0x2000003),
+                "D"((long)fd), "S"(buf), "d"(n)
+              : "rcx", "r11", "cc", "memory"
+          );
+          return ret;
+      }
+
+example: |
+  long n = sys_read(0, buf, sizeof buf);
+
+notes: |
+  - Returns 0 on EOF (not negative; not an error).
+  - Short reads are legal; loop if you must fill the buffer.

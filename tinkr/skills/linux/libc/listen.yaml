@@ -1,0 +1,43 @@
+name: listen
+platform: linux
+lib: libc
+description: |
+  Mark a socket referred to by `sockfd` as a passive socket — that is,
+  one that will be used to accept incoming connection requests via
+  accept(2). The `backlog` argument hints at the maximum length of the
+  pending-connections queue.
+
+lowering: indirect_call
+
+seed:
+  header: linux_libc
+  field: listen
+  access: "s->libc->listen"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1, errno set"
+  params:
+    - { name: sockfd,  c_type: int }
+    - { name: backlog, c_type: int }
+
+example: |
+  int rc = s->libc->listen(srv_fd, 16);
+  if (rc < 0) { /* errno set: EADDRINUSE, EBADF, ENOTSOCK, EOPNOTSUPP */ }
+
+notes: |
+  - Only valid for connection-oriented sockets (SOCK_STREAM, SOCK_SEQPACKET).
+    Calling listen on a SOCK_DGRAM socket yields EOPNOTSUPP.
+  - The socket must already be bound to a local address via bind(2)
+    before calling listen, otherwise an ephemeral address is assigned
+    (for AF_INET/AF_INET6) or the call fails (for AF_UNIX).
+  - `backlog` is silently clamped to the system maximum, controlled by
+    /proc/sys/net/core/somaxconn (default 4096 on modern kernels; was
+    128 on older systems). Passing a negative value is treated as 0 on
+    Linux.
+  - Common errno values: EADDRINUSE (another socket already listening
+    on the port), EBADF (sockfd not a valid descriptor), ENOTSOCK
+    (sockfd refers to a non-socket), EOPNOTSUPP (socket type does not
+    support listen).
+  - Typical sequence: socket() → bind() → listen() → accept() loop.

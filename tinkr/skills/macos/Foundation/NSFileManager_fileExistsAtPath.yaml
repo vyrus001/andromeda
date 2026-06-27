@@ -1,0 +1,62 @@
+name: fileExistsAtPath
+platform: macos
+lib: Foundation
+class: NSFileManager
+description: |
+  Test whether a file or directory exists at the given path. Equivalent
+  to: [[NSFileManager defaultManager] fileExistsAtPath:path]. Returns
+  YES (nonzero) if a file or directory exists at the path, NO (0)
+  otherwise. Symbolic links are followed.
+
+lowering: objc_msgsend
+
+requires:
+  - macos/libobjc/objc_getClass
+  - macos/libobjc/sel_registerName
+  - macos/libobjc/objc_msgSend
+
+class_name: NSFileManager
+selector: "fileExistsAtPath:"
+receiver_kind: instance
+
+signature:
+  return:
+    c_type: "signed char"        # BOOL on macOS (Objective-C BOOL = signed char)
+    on_failure: "returns 0 (NO) if path does not exist or is unreadable"
+  params:
+    - { name: fileManager, c_type: "void *" }   # NSFileManager * (the receiver)
+    - { name: path,        c_type: "void *" }   # NSString *
+
+helper: |
+  static signed char NSFileManager_fileExistsAtPath(struct macos_libobjc *o,
+                                                    void *fileManager,
+                                                    void *path) {
+      void *sel = o->sel_registerName("fileExistsAtPath:");
+      typedef signed char (*msg_t)(void *, void *, void *);
+      return ((msg_t)o->objc_msgSend)(fileManager, sel, path);
+  }
+
+example: |
+  /* Get [NSFileManager defaultManager], then probe a path. */
+  void *fmCls   = s->libobjc->objc_getClass("NSFileManager");
+  void *defSel  = s->libobjc->sel_registerName("defaultManager");
+  typedef void *(*get_t)(void *, void *);
+  void *fm      = ((get_t)s->libobjc->objc_msgSend)(fmCls, defSel);
+
+  void *path    = NSString_stringWithUTF8String(s->libobjc, "/etc/hosts");
+  signed char exists = NSFileManager_fileExistsAtPath(s->libobjc, fm, path);
+
+notes: |
+  - BOOL on macOS is `signed char` (1 byte); do NOT use `int` for the
+    return type or you'll read garbage in the upper bytes on some
+    arm64 codepaths. Test with `if (exists)` — any nonzero is YES.
+  - The receiver must be an NSFileManager instance, typically obtained
+    via [NSFileManager defaultManager] (class method, no args).
+  - `path` must be an NSString *, e.g. built with NSString's
+    stringWithUTF8String: skill. Passing a raw C string will crash.
+  - Symbolic links are followed; use fileExistsAtPath:isDirectory: if
+    you also need to know whether the target is a directory, or
+    attributesOfItemAtPath:error: for richer metadata without following
+    symlinks (use lstat-style APIs instead).
+  - Does not distinguish "does not exist" from "exists but unreadable
+    by this process"; both return NO.

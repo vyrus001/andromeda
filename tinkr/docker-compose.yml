@@ -1,0 +1,37 @@
+services:
+  dev:
+    build:
+      context: .
+      target: dev
+    image: tinkr-dev
+    volumes:
+      - ./:/work
+      - ../tailor:/tailor
+    working_dir: /work
+    stdin_open: true
+    tty: true
+    command: bash
+
+  agent:
+    build:
+      context: .
+      target: agent
+    image: tinkr-agent
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./:/work
+      - ../tailor:/tailor
+    working_dir: /work
+
+  skill-gen:
+    image: tinkr-agent           # same image as agent
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./:/work
+      - ../tailor:/tailor
+    working_dir: /work
+    entrypoint: ["python3", "/work/agent/skill_gen.py"]

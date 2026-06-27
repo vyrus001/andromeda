@@ -1,0 +1,52 @@
+name: alloc
+platform: macos
+lib: Foundation
+class: NSString
+description: |
+  Allocate an uninitialized NSString instance with retain count 1.
+  Equivalent to: [NSString alloc]. Almost always chained with an
+  init... method (e.g. initWithUTF8String:, initWithBytes:length:encoding:)
+  before the returned object is usable.
+
+lowering: objc_msgsend
+
+requires:
+  - macos/libobjc/objc_getClass
+  - macos/libobjc/sel_registerName
+  - macos/libobjc/objc_msgSend
+
+class_name: NSString
+selector: "alloc"
+receiver_kind: class
+
+signature:
+  return:
+    c_type: "void *"           # id (uninitialized NSString *)
+    on_failure: "NULL on allocation failure (extremely rare)"
+  params: []
+
+helper: |
+  static void *NSString_alloc(struct macos_libobjc *o) {
+      void *cls = o->objc_getClass("NSString");
+      void *sel = o->sel_registerName("alloc");
+      typedef void *(*msg_t)(void *, void *);
+      return ((msg_t)o->objc_msgSend)(cls, sel);
+  }
+
+example: |
+  /* Typical chained use: [[NSString alloc] initWithUTF8String:"hi"] */
+  void *raw = NSString_alloc(s->libobjc);
+  /* ...then send initWithUTF8String: to `raw` via another skill. */
+
+notes: |
+  - The returned object is +1 retained and NOT autoreleased; the caller
+    owns it and must eventually release it (or transfer ownership to an
+    init... call, which conventionally consumes the +1).
+  - Sending any message other than an init... to the raw alloc'd object
+    is undefined behaviour — its ivars are zeroed but no designated
+    initializer has run.
+  - On arm64 the typed cast in the helper is mandatory: invoking
+    objc_msgSend through its variadic prototype uses a different ABI
+    than the named-args form and will corrupt the call.
+  - For an autoreleased convenience constructor instead, see
+    macos/Foundation/NSString_stringWithUTF8String.

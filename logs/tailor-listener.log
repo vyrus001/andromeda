@@ -1,0 +1,8 @@
+[tailor-listen] websocket ws://127.0.0.1:8765/ws/tailor/carls-MacBook-Pro.local
+[tailor-listen] <- hello
+[tailor-listen] websocket closed
+[tailor-listen] websocket ws://127.0.0.1:8765/ws/tailor/carls-MacBook-Pro.local
+[tailor-listen] <- hello
+[tailor-listen] websocket closed
+[tailor-listen] websocket ws://127.0.0.1:8765/ws/tailor/carls-MacBook-Pro.local
+[tailor-listen] <- hello

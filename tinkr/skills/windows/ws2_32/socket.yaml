@@ -1,0 +1,49 @@
+name: socket
+platform: windows
+lib: ws2_32
+description: |
+  Create a Winsock socket descriptor. Returns a SOCKET handle bound to
+  the specified address family, socket type, and protocol. WSAStartup
+  must have been called successfully earlier in the process; otherwise
+  socket() fails with WSANOTINITIALISED.
+
+lowering: indirect_call
+
+seed:
+  header: windows_ws2_32
+  field: socket
+  access: "s->ws2_32->socket"
+
+# MSDN typed names:
+#   SOCKET = UINT_PTR (pointer-sized unsigned); represented here as
+#   `void *` so the same field width works on x86 and x64.
+#   INVALID_SOCKET = (SOCKET)(~0) — i.e. (void *)-1.
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "INVALID_SOCKET ((void *)-1); call WSAGetLastError() for code"
+  params:
+    - { name: af,       c_type: int }
+    - { name: type,     c_type: int }
+    - { name: protocol, c_type: int }
+
+example: |
+  /* AF_INET = 2, SOCK_STREAM = 1, IPPROTO_TCP = 6 */
+  void *sock = s->ws2_32->socket(2, 1, 6);
+  if (sock == (void *)-1) { /* WSAGetLastError() for detail */ }
+
+notes: |
+  - SOCKET is a UINT_PTR on Windows, not an int (as on POSIX). Always
+    compare against INVALID_SOCKET ((void*)-1), never against -1 as an
+    int — on x64 the high bits matter.
+  - Common `af` values: AF_UNSPEC=0, AF_INET=2, AF_INET6=23, AF_UNIX=1
+    (Win10 1803+).
+  - Common `type` values: SOCK_STREAM=1, SOCK_DGRAM=2, SOCK_RAW=3.
+  - Common `protocol` values: IPPROTO_TCP=6, IPPROTO_UDP=17, 0 = default
+    for the (af, type) pair.
+  - Requires a prior successful WSAStartup() call in the process. If the
+    blob is the first Winsock user, emit a WSAStartup call before this.
+  - Prefer WSASocketW for advanced flags (e.g. WSA_FLAG_OVERLAPPED is
+    set by default with socket(); WSASocketW lets you opt out).
+  - Win64 ABI: args in RCX, RDX, R8 with 32-byte shadow space. Clang
+    handles this when --target=x86_64-pc-windows-*.

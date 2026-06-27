@@ -1,0 +1,48 @@
+name: stat
+platform: macos
+lib: libSystem
+description: |
+  Retrieve file metadata for the file at `path`, following symbolic
+  links. Fills the caller-provided `struct stat` buffer with size,
+  mode, timestamps, device/inode, ownership, etc.
+
+lowering: indirect_call
+
+seed:
+  header: macos_libsystem
+  field: stat
+  access: "s->libsystem->stat"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1, errno set"
+  params:
+    - { name: path, c_type: "const char *" }
+    - { name: buf,  c_type: "void *" }
+
+example: |
+  /* struct stat is ~144 bytes on macOS (stat64 layout); allocate
+     generously and let the kernel fill it. Cast fields out via your
+     own matching struct definition if you need to read them. */
+  char st[256];
+  int rc = s->libsystem->stat("/etc/hosts", st);
+  if (rc < 0) { /* errno set */ }
+
+notes: |
+  - Apple typed signature: `int stat(const char *restrict path,
+    struct stat *restrict buf);`. We pass `buf` as `void *` so the
+    skill stays free of <sys/stat.h>; the caller supplies a buffer
+    large enough for the platform's `struct stat`.
+  - On modern macOS (10.6+), the user-visible `stat` symbol is the
+    64-bit-inode variant. Apple ships it under the asm name
+    `stat$INODE64` on x86_64 and as plain `stat` on arm64; the loader
+    must seed whichever symbol libSystem exports for the target arch.
+  - `struct stat` layout on macOS (sizeof ≈ 144 on arm64) differs from
+    Linux. If you need to read specific fields from the blob, embed a
+    matching struct definition locally rather than including system
+    headers — SheLLVM will fold the offsets.
+  - Follows symlinks. Use `lstat` to inspect the link itself, or
+    `fstatat` with AT_SYMLINK_NOFOLLOW for path-relative queries.
+  - For purely "does this path exist?" checks, `access(path, F_OK)` is
+    cheaper and avoids the buffer dance.

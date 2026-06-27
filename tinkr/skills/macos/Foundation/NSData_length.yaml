@@ -1,0 +1,47 @@
+name: length
+platform: macos
+lib: Foundation
+class: NSData
+description: |
+  Return the number of bytes contained in the receiver NSData object.
+  Equivalent to: [data length]. The result is an NSUInteger, which is
+  a 64-bit unsigned integer on arm64 and x86_64 macOS.
+
+lowering: objc_msgsend
+
+requires:
+  - macos/libobjc/sel_registerName
+  - macos/libobjc/objc_msgSend
+
+class_name: NSData
+selector: "length"
+receiver_kind: instance
+
+signature:
+  return:
+    c_type: "unsigned long"      # NSUInteger
+    on_failure: "no failure mode; nil receiver returns 0"
+  params:
+    - { name: data, c_type: "void *" }   # NSData * receiver
+
+helper: |
+  static unsigned long NSData_length(struct macos_libobjc *o, void *data) {
+      void *sel = o->sel_registerName("length");
+      typedef unsigned long (*msg_t)(void *, void *);
+      return ((msg_t)o->objc_msgSend)(data, sel);
+  }
+
+example: |
+  unsigned long n = NSData_length(s->libobjc, data);
+
+notes: |
+  - NSUInteger is `unsigned long` on 64-bit Darwin (LP64); both arm64
+    and x86_64 macOS use a 64-bit unsigned value.
+  - Instance method: receiver is the NSData * itself, not the class.
+  - Sending `length` to a nil receiver returns 0 silently (standard
+    Objective-C nil-messaging semantics for integer returns).
+  - No objc_getClass needed for instance methods — the caller already
+    holds the instance pointer; only sel_registerName + objc_msgSend
+    are required.
+  - The typed function-pointer cast is mandatory on arm64 to avoid
+    the variadic ABI of the raw objc_msgSend symbol.

@@ -1,0 +1,70 @@
+name: connect
+platform: windows
+lib: ws2_32
+description: |
+  Establish a connection on a socket to the address specified by `name`.
+  For connection-oriented sockets (SOCK_STREAM/TCP), performs the
+  handshake; for connectionless sockets (SOCK_DGRAM/UDP), sets the
+  default destination address for subsequent send/recv calls.
+
+lowering: indirect_call
+
+seed:
+  header: windows_ws2_32
+  field: connect
+  access: "s->ws2_32->connect"
+
+# Winsock typed names translated to plain C:
+#   SOCKET              -> void *       (UINT_PTR; opaque kernel handle)
+#   const struct sockaddr *  -> const void *  (variable-size, family-tagged)
+#   int                 -> int
+# WSAStartup MUST have been called successfully before connect.
+signature:
+  return:
+    c_type: int
+    on_failure: "returns SOCKET_ERROR (-1); call WSAGetLastError() for code"
+  params:
+    - { name: s,       c_type: "void *" }
+    - { name: name,    c_type: "const void *" }
+    - { name: namelen, c_type: int }
+
+example: |
+  /* Connect to 127.0.0.1:8080 (IPv4 TCP). */
+  /* struct sockaddr_in layout (16 bytes on Windows):
+       short  sin_family;        // AF_INET = 2
+       unsigned short sin_port;  // network byte order
+       unsigned int   sin_addr;  // network byte order
+       char   sin_zero[8];
+  */
+  struct {
+      short sin_family;
+      unsigned short sin_port;
+      unsigned int sin_addr;
+      char sin_zero[8];
+  } addr = { 2, /* htons(8080) */ 0x901F,
+             /* 127.0.0.1 in network order */ 0x0100007F, {0} };
+  int rc = s->ws2_32->connect(sock, &addr, sizeof addr);
+  if (rc == -1) { /* int err = s->ws2_32->WSAGetLastError(); */ }
+
+notes: |
+  - WSAStartup(MAKEWORD(2,2), &wsadata) MUST have completed successfully
+    earlier in the process before any Winsock call, including connect.
+    If the loader hasn't done this, the agent must emit a WSAStartup
+    call (skill: windows/ws2_32/WSAStartup) before this one.
+  - Return value: 0 on success, SOCKET_ERROR (-1) on failure. Unlike
+    POSIX, Winsock does NOT set errno — use WSAGetLastError() to get
+    the WSAE* error code (e.g. WSAEWOULDBLOCK=10035, WSAECONNREFUSED=10061,
+    WSAETIMEDOUT=10060, WSAEHOSTUNREACH=10065).
+  - Non-blocking sockets: connect returns SOCKET_ERROR immediately with
+    WSAGetLastError() == WSAEWOULDBLOCK (10035); use select/WSAPoll to
+    wait for writability, then check SO_ERROR via getsockopt to confirm
+    success.
+  - Port and IPv4 address fields are in NETWORK byte order (big-endian).
+    Build them via htons/htonl or precompute as byte-swapped constants
+    in the blob.
+  - sockaddr family tags: AF_INET=2 (IPv4), AF_INET6=23 (Winsock value,
+    differs from Linux's 10), AF_UNIX=1 (Win10 1803+).
+  - namelen is the byte size of the concrete sockaddr_in/in6 struct,
+    not sizeof(struct sockaddr).
+  - Win64 ABI: first four args in RCX, RDX, R8, R9 + 32-byte shadow
+    space; clang handles when --target=x86_64-pc-windows-*.

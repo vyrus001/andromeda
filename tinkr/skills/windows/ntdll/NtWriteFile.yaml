@@ -1,0 +1,81 @@
+name: NtWriteFile
+platform: windows
+lib: ntdll
+description: |
+  Native API counterpart to WriteFile. Writes data to an open file
+  handle (file, pipe, device, console) using the NT layer directly,
+  bypassing kernel32. Preferred by loaders that run before kernel32
+  is fully wired up, or that want to avoid kernel32's Win32-error
+  translation layer.
+
+lowering: indirect_call
+
+seed:
+  header: windows_ntdll
+  field: NtWriteFile
+  access: "s->ntdll->NtWriteFile"
+
+# MSDN/DDK typed names translated to plain C:
+#   HANDLE            -> void *
+#   PIO_APC_ROUTINE   -> void * (callback fn pointer, NULL for none)
+#   PIO_STATUS_BLOCK  -> void * (points to IO_STATUS_BLOCK: { NTSTATUS; ULONG_PTR; })
+#   PLARGE_INTEGER    -> long long * (file offset; NULL = use current position)
+#   PULONG            -> unsigned int *
+#   NTSTATUS          -> int (0 = STATUS_SUCCESS; STATUS_PENDING = 0x103)
+signature:
+  return:
+    c_type: int
+    on_failure: "NTSTATUS != 0 indicates failure or pending; no GetLastError"
+  params:
+    - { name: FileHandle,    c_type: "void *" }
+    - { name: Event,         c_type: "void *" }
+    - { name: ApcRoutine,    c_type: "void *" }
+    - { name: ApcContext,    c_type: "void *" }
+    - { name: IoStatusBlock, c_type: "void *" }
+    - { name: Buffer,        c_type: "const void *" }
+    - { name: Length,        c_type: "unsigned int" }
+    - { name: ByteOffset,    c_type: "long long *" }
+    - { name: Key,           c_type: "unsigned int *" }
+
+example: |
+  /* Write to a handle opened via NtCreateFile (or a kernel32 handle).
+     IO_STATUS_BLOCK is two pointer-sized fields: status + Information
+     (bytes transferred). We declare it as two void*-sized slots. */
+  struct { void *status; void *info; } iosb;
+  int st = s->ntdll->NtWriteFile(hFile,
+                                 NULL,    /* Event */
+                                 NULL,    /* ApcRoutine */
+                                 NULL,    /* ApcContext */
+                                 &iosb,
+                                 msg, msg_len,
+                                 NULL,    /* ByteOffset: use current */
+                                 NULL);   /* Key */
+  /* On success, bytes written = (size_t)iosb.info. */
+
+notes: |
+  - IoStatusBlock MUST point to writable storage that survives the
+    call (and any async completion). Layout is:
+      typedef struct _IO_STATUS_BLOCK {
+          union { NTSTATUS Status; PVOID Pointer; };
+          ULONG_PTR Information;     /* bytes transferred on success */
+      } IO_STATUS_BLOCK;
+    Size is 2 * sizeof(void *) on both x86 and x64.
+  - For synchronous handles (opened WITHOUT FILE_FLAG_OVERLAPPED /
+    without FILE_SYNCHRONOUS_IO_NONALERT cleared), the call blocks
+    until completion and returns the final NTSTATUS directly.
+  - For async handles, return may be STATUS_PENDING (0x00000103).
+    The caller must wait on Event (or the file handle itself) and
+    then read IoStatusBlock for the real status + byte count.
+  - ByteOffset semantics: pass NULL to use the file pointer's current
+    position (only valid for synchronous handles). Pass a pointer to
+    an LARGE_INTEGER (long long) absolute offset otherwise. The magic
+    value 0xFFFFFFFFFFFFFFFE means "current position" for async too.
+  - Win64 ABI: 4 register args (RCX/RDX/R8/R9) + 32-byte shadow space;
+    remaining 5 args spill to the stack. Clang handles this when
+    --target=x86_64-pc-windows-*.
+  - No GetLastError mapping: NTSTATUS values are direct (e.g.
+    STATUS_INVALID_HANDLE = 0xC0000008, STATUS_END_OF_FILE = 0xC0000011).
+    Top bit set = error; 0x4xxxxxxx = warning; 0x8xxxxxxx = informational.
+  - Console handles obtained from GetStdHandle work here, but text
+    encoding follows the console's code page (use NtWriteFile on a
+    file/pipe handle for raw bytes).

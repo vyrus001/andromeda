@@ -1,0 +1,64 @@
+name: dataUsingEncoding
+platform: macos
+lib: Foundation
+class: NSString
+description: |
+  Encode an NSString's characters into an NSData blob using the given
+  string encoding. Equivalent to: [str dataUsingEncoding:encoding].
+  Returns an autoreleased NSData *, or nil if the string cannot be
+  represented in the requested encoding without loss.
+
+lowering: objc_msgsend
+
+requires:
+  - macos/libobjc/objc_getClass
+  - macos/libobjc/sel_registerName
+  - macos/libobjc/objc_msgSend
+
+class_name: NSString
+selector: "dataUsingEncoding:"
+receiver_kind: instance
+
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "nil (NULL) if the string can't be encoded losslessly"
+  params:
+    - { name: str,      c_type: "void *" }
+    - { name: encoding, c_type: "unsigned long" }
+
+helper: |
+  static void *NSString_dataUsingEncoding(struct macos_libobjc *o,
+                                          void *str,
+                                          unsigned long encoding) {
+      void *sel = o->sel_registerName("dataUsingEncoding:");
+      typedef void *(*msg_t)(void *, void *, unsigned long);
+      return ((msg_t)o->objc_msgSend)(str, sel, encoding);
+  }
+
+example: |
+  /* Encode an NSString as UTF-8 NSData. */
+  void *str = NSString_stringWithUTF8String(s->libobjc, "hello");
+  void *data = NSString_dataUsingEncoding(s->libobjc, str,
+                                          /* NSUTF8StringEncoding */ 4);
+
+notes: |
+  - Instance method: the receiver is the NSString instance, not the
+    NSString class. No objc_getClass call is needed at the call site,
+    only sel_registerName + objc_msgSend.
+  - NSStringEncoding is a typedef for `unsigned long` (NSUInteger on
+    64-bit Darwin). Common values: NSASCIIStringEncoding=1,
+    NSUTF8StringEncoding=4, NSUTF16StringEncoding=10,
+    NSUTF16LittleEndianStringEncoding=0x94000100,
+    NSUTF16BigEndianStringEncoding=0x90000100,
+    NSUTF32StringEncoding=0x8c000100.
+  - The returned NSData is autoreleased; for blob lifetimes the
+    surrounding autorelease pool typically handles cleanup. Use
+    `-retain` (or a `-copy` variant) if it must outlive the pool.
+  - Returns nil (NULL) if the string contains characters the encoding
+    can't represent. Use `dataUsingEncoding:allowLossyConversion:` for
+    lossy fallback.
+  - Apple Silicon arm64 ABI: the typed function-pointer cast in the
+    helper is essential — invoking objc_msgSend variadically with a
+    named NSUInteger arg uses a different register layout and will
+    corrupt the encoding value.

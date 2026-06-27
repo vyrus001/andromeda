@@ -1,0 +1,37 @@
+name: sleep
+platform: linux
+lib: libc
+description: |
+  Suspend execution of the calling thread for at least `seconds` seconds.
+  Returns 0 on normal completion, or the number of seconds left to sleep
+  if interrupted by a signal.
+
+lowering: indirect_call
+
+seed:
+  header: linux_libc
+  field: sleep
+  access: "s->libc->sleep"
+
+signature:
+  return:
+    c_type: "unsigned int"
+    on_failure: "returns unslept seconds if interrupted by a signal handler"
+  params:
+    - { name: seconds, c_type: "unsigned int" }
+
+example: |
+  unsigned int remaining = s->libc->sleep(5);
+  if (remaining > 0) { /* interrupted, `remaining` seconds left */ }
+
+notes: |
+  - Sleep resolution is whole seconds. For sub-second waits use
+    nanosleep(2) or usleep(3).
+  - On signal delivery to a handler with SA_RESTART unset, sleep returns
+    early with the unslept remainder; the caller may loop on the return
+    value if it must wait the full duration.
+  - Mixing sleep() with SIGALRM is undefined on some libc implementations
+    (glibc uses nanosleep under the hood and is safe; older System V
+    libcs implemented sleep via alarm()).
+  - The seed entry must point to libc's `sleep`. Cancellation point per
+    POSIX — a pthread cancel can interrupt it.

@@ -1,0 +1,54 @@
+name: fork
+platform: linux
+lib: libc
+description: |
+  Create a new process by duplicating the calling process. The child is
+  a near-identical copy of the parent (memory is copy-on-write); both
+  parent and child resume execution from the fork() call site, but
+  with different return values. Used as the foundation for spawning
+  subprocesses, daemonizing, and classic fork+exec patterns.
+
+lowering: indirect_call
+
+seed:
+  header: linux_libc
+  field: fork
+  access: "s->libc->fork"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1 in the parent, errno set; no child is created"
+  params: []
+
+example: |
+  int pid = s->libc->fork();
+  if (pid < 0) {
+      /* errno set: EAGAIN, ENOMEM, ENOSYS, ... */
+  } else if (pid == 0) {
+      /* child: pid == 0 here */
+      s->libc->_exit(0);
+  } else {
+      /* parent: pid == child's PID */
+  }
+
+notes: |
+  - Three return-value regimes: 0 in the child, >0 (child's PID) in the
+    parent, -1 on failure (only the parent sees -1; no child exists).
+  - POSIX pid_t is `int` on every Linux ABI; the signature uses `int`
+    to avoid pulling in <sys/types.h> from seeds.h.
+  - Copy-on-write semantics: memory pages are shared read-only until
+    one side writes, at which point the page is duplicated. Open file
+    descriptors are duplicated (share the same file offset).
+  - In a multithreaded process, only the calling thread is duplicated
+    in the child. async-signal-unsafe operations between fork() and
+    exec() in the child are undefined; stick to async-signal-safe APIs
+    or call execve() promptly.
+  - glibc's fork() runs pthread_atfork() handlers and may call clone(2)
+    under the hood with CLONE_CHILD_SETTID etc. For a thinner path,
+    see linux/syscall/clone or linux/syscall/fork (vfork on some archs).
+  - On arm64 Linux there is no `fork` syscall; libc emits clone(2)
+    with SIGCHLD. The seed entry hides that detail.
+  - After fork() in the child, prefer _exit() over exit() to avoid
+    running atexit handlers / flushing stdio buffers that the parent
+    still owns.

@@ -1,0 +1,42 @@
+name: socket
+platform: linux
+lib: libc
+description: |
+  Create an endpoint for communication. Returns a file descriptor
+  referring to a new socket of the requested domain, type, and protocol.
+
+lowering: indirect_call
+
+seed:
+  header: linux_libc
+  field: socket
+  access: "s->libc->socket"
+
+signature:
+  return:
+    c_type: int
+    on_failure: "returns -1, errno set"
+  params:
+    - { name: domain,   c_type: int }
+    - { name: type,     c_type: int }
+    - { name: protocol, c_type: int }
+
+example: |
+  /* AF_INET=2, SOCK_STREAM=1, IPPROTO_TCP=6 */
+  int fd = s->libc->socket(2, 1, 6);
+  if (fd < 0) { /* errno set */ }
+
+notes: |
+  - Common `domain` values on Linux: AF_UNIX=1, AF_INET=2, AF_INET6=10,
+    AF_NETLINK=16, AF_PACKET=17.
+  - Common `type` values: SOCK_STREAM=1, SOCK_DGRAM=2, SOCK_RAW=3,
+    SOCK_SEQPACKET=5. These can be OR'd with SOCK_NONBLOCK=0x800 and
+    SOCK_CLOEXEC=0x80000 to set those flags atomically at creation.
+  - `protocol` is usually 0 (let the kernel pick the default for the
+    type) but can be set explicitly: IPPROTO_TCP=6, IPPROTO_UDP=17,
+    IPPROTO_ICMP=1, IPPROTO_RAW=255.
+  - Returned fd inherits the close-on-exec flag only if SOCK_CLOEXEC
+    was OR'd into `type`; otherwise it survives execve().
+  - For AF_PACKET / raw sockets, the process typically needs CAP_NET_RAW.
+  - The returned fd is usable with read/write/close/poll/epoll like any
+    other file descriptor; use connect/bind/listen/accept for setup.

@@ -1,0 +1,56 @@
+name: processInfo
+platform: macos
+lib: Foundation
+class: NSProcessInfo
+description: |
+  Return the shared NSProcessInfo singleton for the current process.
+  Equivalent to: [NSProcessInfo processInfo]. The returned object
+  exposes environment variables, argument vector, host name, OS
+  version, and other process-level metadata.
+
+lowering: objc_msgsend
+
+requires:
+  - macos/libobjc/objc_getClass
+  - macos/libobjc/sel_registerName
+  - macos/libobjc/objc_msgSend
+
+class_name: NSProcessInfo
+selector: "processInfo"
+receiver_kind: class
+
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "should never fail; nil only if the Foundation runtime is unloaded"
+  params: []
+
+helper: |
+  static void *NSProcessInfo_processInfo(struct macos_libobjc *o) {
+      void *cls = o->objc_getClass("NSProcessInfo");
+      void *sel = o->sel_registerName("processInfo");
+      typedef void *(*msg_t)(void *, void *);
+      return ((msg_t)o->objc_msgSend)(cls, sel);
+  }
+
+example: |
+  void *pi = NSProcessInfo_processInfo(s->libobjc);
+  /* pi is an NSProcessInfo *; send further messages like
+     `arguments`, `environment`, `processIdentifier`, etc. */
+
+notes: |
+  - The returned NSProcessInfo is a process-wide singleton; do NOT
+    release it. Its lifetime matches the process.
+  - Apple Silicon (arm64) ABI: objc_msgSend is variadic in its raw
+    declaration but the helper casts to a typed non-variadic function
+    pointer matching the actual arg count (receiver + selector only),
+    which is required for correct register-based argument passing.
+  - Useful follow-up selectors on the returned object:
+      arguments            -> NSArray<NSString *> *
+      environment          -> NSDictionary<NSString*,NSString*> *
+      processIdentifier    -> int (pid_t)
+      processName          -> NSString *
+      operatingSystemVersionString -> NSString *
+  - NSProcessInfo lives in Foundation.framework; the seed loader must
+    have dlopen'd Foundation (or it must already be linked) before
+    objc_getClass("NSProcessInfo") will resolve.

@@ -1,0 +1,50 @@
+name: mmap
+platform: linux
+lib: libc
+description: |
+  Map files or anonymous memory into the process address space via libc.
+  Returns a pointer to the mapped region, or MAP_FAILED on error.
+
+lowering: indirect_call
+
+seed:
+  header: linux_libc
+  field: mmap
+  access: "s->libc->mmap"
+
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "MAP_FAILED ((void *)-1), errno set"
+  params:
+    - { name: addr,   c_type: "void *" }
+    - { name: length, c_type: size_t }
+    - { name: prot,   c_type: int }
+    - { name: flags,  c_type: int }
+    - { name: fd,     c_type: int }
+    - { name: offset, c_type: "long long" }
+
+example: |
+  void *page = s->libc->mmap(NULL, 4096,
+      /* PROT_READ|PROT_WRITE */ 3,
+      /* MAP_ANONYMOUS|MAP_PRIVATE */ 0x22,
+      -1, 0);
+  if (page == (void *)-1) { /* errno set */ }
+
+notes: |
+  - PROT_* values on Linux: PROT_NONE=0, PROT_READ=1, PROT_WRITE=2,
+    PROT_EXEC=4. Combine with bitwise OR.
+  - MAP_* values on Linux: MAP_SHARED=0x01, MAP_PRIVATE=0x02,
+    MAP_FIXED=0x10, MAP_ANONYMOUS=0x20 (note: differs from macOS's 0x1000).
+    MAP_ANONYMOUS implies fd=-1 and offset=0 on most kernels but pass
+    them explicitly for portability.
+  - `offset` is off_t in POSIX; we expose it as `long long` to avoid a
+    <sys/types.h> dependency in seeds.h. On 32-bit Linux, libc's `mmap`
+    only takes a 32-bit offset — use `mmap64` for large offsets.
+  - On failure returns MAP_FAILED ((void *)-1), NOT NULL. Always compare
+    against (void *)-1, not against zero.
+  - To later flip a region to PROT_EXEC for JIT, allocate with
+    PROT_READ|PROT_WRITE and use mprotect; Linux has no equivalent of
+    macOS's MAP_JIT requirement.
+  - `length` is rounded up to the page size by the kernel; the returned
+    region is page-aligned.

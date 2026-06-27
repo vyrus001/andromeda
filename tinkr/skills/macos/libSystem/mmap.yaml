@@ -1,0 +1,39 @@
+name: mmap
+platform: macos
+lib: libSystem
+description: |
+  Map files or anonymous memory into the process address space.
+
+lowering: indirect_call
+
+seed:
+  header: macos_libsystem
+  field: mmap
+  access: "s->libsystem->mmap"
+
+signature:
+  return:
+    c_type: "void *"
+    on_failure: "MAP_FAILED ((void *)-1), errno set"
+  params:
+    - { name: addr,   c_type: "void *" }
+    - { name: length, c_type: size_t }
+    - { name: prot,   c_type: int }
+    - { name: flags,  c_type: int }
+    - { name: fd,     c_type: int }
+    - { name: offset, c_type: off_t }
+
+example: |
+  void *page = s->libsystem->mmap(NULL, 4096,
+      /* PROT_READ|PROT_WRITE */ 3,
+      /* MAP_ANON|MAP_PRIVATE */ 0x1002,
+      -1, 0);
+
+notes: |
+  - macOS requires `MAP_JIT` (0x800) on hardened runtime processes to
+    later flip a page to PROT_EXEC; without it, mprotect to RX fails on
+    Apple Silicon with the hardened-runtime entitlement.
+  - PROT_* and MAP_* values differ between Linux and macOS in some cases
+    (MAP_ANON=0x1000 on macOS, 0x20 on Linux). Use the numeric macOS
+    values when generating macOS blobs.
+  - macOS arm64: code-signing requires JIT pages to flip via pthread_jit_write_protect_np.

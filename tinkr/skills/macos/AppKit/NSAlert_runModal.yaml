@@ -1,0 +1,55 @@
+name: runModal
+platform: macos
+lib: AppKit
+class: NSAlert
+description: |
+  Display an application-modal alert and block until the user dismisses
+  it. Equivalent to: [alert runModal]. Returns an NSModalResponse code
+  identifying which button the user clicked (1000 for the first/OK
+  button, 1001 for Cancel, 1002 for the third button, etc.).
+
+lowering: objc_msgsend
+
+requires:
+  - macos/libobjc/objc_getClass
+  - macos/libobjc/sel_registerName
+  - macos/libobjc/objc_msgSend
+
+class_name: NSAlert
+selector: "runModal"
+receiver_kind: instance
+
+signature:
+  return:
+    c_type: long              # NSModalResponse = NSInteger = long on 64-bit
+    on_failure: "no error channel; result is the button code"
+  params:
+    - { name: alert, c_type: "void *" }   # NSAlert * (the receiver)
+
+helper: |
+  static long NSAlert_runModal(struct macos_libobjc *o, void *alert) {
+      void *sel = o->sel_registerName("runModal");
+      typedef long (*msg_t)(void *, void *);
+      return ((msg_t)o->objc_msgSend)(alert, sel);
+  }
+
+example: |
+  /* Assume `alert` is an NSAlert * already constructed and configured. */
+  long response = NSAlert_runModal(s->libobjc, alert);
+  if (response == 1000) { /* user clicked the first/default button */ }
+
+notes: |
+  - NSModalResponse is a typedef for NSInteger, which is `long` on
+    64-bit macOS (both arm64 and x86_64).
+  - Common return values: NSAlertFirstButtonReturn=1000,
+    NSAlertSecondButtonReturn=1001, NSAlertThirdButtonReturn=1002.
+    Legacy codes NSAlertDefaultReturn=1, NSAlertAlternateReturn=0,
+    NSAlertOtherReturn=-1 may appear from older APIs.
+  - Blocks the calling thread; must be invoked on the main thread, and
+    a running NSApplication is required (call [NSApplication sharedApplication]
+    first if the blob hasn't yet).
+  - The receiver MUST be a valid NSAlert instance (e.g., from
+    [[NSAlert alloc] init] or [NSAlert new]); passing nil silently
+    returns 0 via objc_msgSend's nil-receiver behavior.
+  - AppKit framework must be loaded into the process; GUI apps have it
+    by default, but command-line tools must link/load it explicitly.

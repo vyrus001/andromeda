@@ -1,0 +1,33 @@
+name: write
+platform: linux
+lib: libc
+description: |
+  Write up to `count` bytes from `buf` to file descriptor `fd` via libc.
+  Resolves at load-time through the seed struct, so the blob is loader-
+  agnostic — whatever the loader puts at s->libc->write gets called.
+
+lowering: indirect_call
+
+seed:
+  header: linux_libc           # sub-struct name in seeds.h
+  field:  write                # field within that sub-struct
+  access: "s->libc->write"     # C expression after taking `struct seeds *s`
+
+signature:
+  return:
+    c_type: ssize_t
+    on_failure: "returns -1, errno set"
+  params:
+    - { name: fd,    c_type: int }
+    - { name: buf,   c_type: "const void *" }
+    - { name: count, c_type: size_t }
+
+example: |
+  ssize_t n = s->libc->write(1, msg, msg_len);
+  if (n < 0) { /* errno set */ }
+
+notes: |
+  - Partial writes are legal. Loop if you must write the full buffer.
+  - `buf` must remain valid for the duration of the call.
+  - The seed entry must point to libc's `write`. A pthread-wrapped or
+    fortify-wrapped variant has the same ABI.

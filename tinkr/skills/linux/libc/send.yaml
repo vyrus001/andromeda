@@ -1,0 +1,45 @@
+name: send
+platform: linux
+lib: libc
+description: |
+  Send data on a connected socket. Equivalent to write(2) on the socket
+  fd when flags == 0, but also exposes send-specific behaviour via the
+  flags argument (MSG_NOSIGNAL, MSG_DONTWAIT, MSG_OOB, etc.). Resolves
+  at load-time through the seed struct.
+
+lowering: indirect_call
+
+seed:
+  header: linux_libc
+  field: send
+  access: "s->libc->send"
+
+signature:
+  return:
+    c_type: long
+    on_failure: "returns -1, errno set"
+  params:
+    - { name: sockfd, c_type: int }
+    - { name: buf,    c_type: "const void *" }
+    - { name: len,    c_type: size_t }
+    - { name: flags,  c_type: int }
+
+example: |
+  /* MSG_NOSIGNAL = 0x4000 — suppress SIGPIPE on a closed peer */
+  long n = s->libc->send(sockfd, msg, msg_len, 0x4000);
+  if (n < 0) { /* errno set */ }
+
+notes: |
+  - Return type is ssize_t in libc; we expose `long` because seeds.h
+    does not include <sys/types.h>. Same width on every Linux ABI.
+  - The socket must be in a connected state. For unconnected datagram
+    sockets use sendto(2) instead.
+  - Partial sends are legal on stream sockets (SOCK_STREAM). Loop until
+    `len` bytes have been transferred, or accept the short write.
+  - Common flags (Linux): MSG_OOB=0x1, MSG_DONTROUTE=0x4, MSG_DONTWAIT=0x40,
+    MSG_NOSIGNAL=0x4000, MSG_MORE=0x8000, MSG_CONFIRM=0x800.
+  - MSG_NOSIGNAL is strongly preferred over installing a SIGPIPE handler
+    when writing to sockets whose peer may have closed; it converts the
+    condition into EPIPE on the return value instead of a signal.
+  - On Linux glibc, `send` is typically a thin wrapper around the
+    sendto(2) syscall with NULL dest_addr; the seed can point to either.

@@ -1,0 +1,73 @@
+name: task_self_trap
+platform: macos
+lib: mach-trap
+description: |
+  Mach trap returning the task port (mach_port_name_t) for the current
+  process. This is the raw kernel trap that libSystem's
+  mach_task_self() caches into a global. Useful when you need the task
+  port without depending on any userland library being resolved.
+
+lowering: syscall
+
+signature:
+  return:
+    c_type: "unsigned int"
+    on_failure: "MACH_PORT_NULL (0) on failure; Mach traps do not set errno"
+  params: []
+
+arch:
+  arm64:
+    syscall_number: -28
+    helper: |
+      static unsigned int mach_task_self_trap(void) {
+          register long x0  __asm__("x0");
+          register long x16 __asm__("x16") = -28;   /* Mach trap number, negated */
+          __asm__ volatile (
+              "svc #0x80"
+              : "=r"(x0)
+              : "r"(x16)
+              : "memory"
+          );
+          return (unsigned int)x0;
+      }
+  x86_64:
+    syscall_number: 33554404    # 0x1FFFFE4 == SYSCALL_CONSTRUCT_MACH(28)
+    helper: |
+      static unsigned int mach_task_self_trap(void) {
+          long ret;
+          /* SYSCALL_CONSTRUCT_MACH(n) = (1 << 24) | (-(n) & 0xFFFFFF)
+             For n=28: 0x1000000 | (-28 & 0xFFFFFF) = 0x1FFFFE4 */
+          __asm__ volatile (
+              "syscall"
+              : "=a"(ret)
+              : "0"((long)0x1FFFFE4)
+              : "rcx", "r11", "cc", "memory"
+          );
+          return (unsigned int)ret;
+      }
+
+example: |
+  unsigned int task = mach_task_self_trap();
+  if (task == 0) { /* MACH_PORT_NULL — trap failed */ }
+
+notes: |
+  - Mach traps are a separate syscall class from BSD syscalls on macOS.
+    On x86_64 the class is encoded in the upper byte of rax (BSD=2,
+    Mach=1, Machdep=3, Diag=4). Mach trap numbers in XNU headers are
+    listed as positive integers; the ABI requires them as two's-
+    complement negative values: x16=-28 on arm64, and
+    SYSCALL_CONSTRUCT_MACH(n) = (1<<24) | (-n & 0xFFFFFF) on x86_64.
+  - No error reporting in the BSD sense — Mach traps return a Mach port
+    name (uint32_t) or kern_return_t directly. task_self_trap returns
+    MACH_PORT_NULL (0) on failure.
+  - libSystem caches the result of this trap in the global
+    `mach_task_self_` and exposes it via the inline `mach_task_self()`.
+    Calling the raw trap repeatedly is wasteful; call once and cache.
+  - Trap numbers and the SYSCALL_CONSTRUCT_MACH encoding are XNU
+    internal ABI. Apple does not document them as stable, though
+    task_self_trap=28 has been stable for a very long time. Verify
+    against the target XNU version's osfmk/kern/syscall_sw.c before
+    shipping.
+  - Prefer macos/libSystem/mach_task_self for production blobs; this
+    skill exists for environments where libSystem is unavailable or
+    intentionally bypassed.
